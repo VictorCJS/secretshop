@@ -1,0 +1,37 @@
+{% extends "tienda/base.html" %}
+
+{% block titulo %}Pedido #{{ pedido.pk }}{% endblock %}
+
+{% block contenido %}
+{% if pedido.estado == "pagado" %}
+<div class="alert alert-success">
+    <h4 class="alert-heading">¡Pago recibido, gracias por tu compra!</h4>
+    <p class="mb-0">Tu pedido #{{ pedido.pk }} está pagado.</p>
+</div>
+{% elif pedido.estado == "pendiente" %}
+<div class="alert alert-warning">
+    <h4 class="alert-heading">Pedido #{{ pedido.pk }} pendiente de pago</h4>
+    <a href="{% url 'pagar_pedido' pedido.pk %}" class="btn btn-success">Pagar con Mercado Pago</a>
+</div>
+{% else %}
+<div class="alert alert-secondary">
+    Pedido #{{ pedido.pk }} - Estado: {{ pedido.get_estado_display }}
+</div>
+{% endif %}
+
+<ul class="list-group mb-3">
+    {% for item in pedido.items.all %}
+    <li class="list-group-item d-flex justify-content-between">
+        <span>{{ item.cantidad }} x {{ item.nombre }}</span>
+        <span>${{ item.subtotal }}</span>
+    </li>
+    {% endfor %}
+    <li class="list-group-item d-flex justify-content-between fw-bold">
+        <span>Total</span>
+        <span>${{ pedido.total }}</span>
+    </li>
+</ul>
+
+<a href="{% url 'mis_pedidos' %}" class="btn btn-dark">Ver mis pedidos</a>
+<a href="{% url 'lista_productos' %}" class="btn btn-outline-secondary">Seguir comprando</a>
+{% endblock %}

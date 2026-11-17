@@ -1,0 +1,42 @@
+{% extends "tienda/base.html" %}
+
+{% block contenido %}
+<h1 class="mb-4">Catálogo</h1>
+<form method="get" class="row g-2 mb-3">
+    <div class="col-sm-8">
+        <input type="text" name="q" value="{{ busqueda }}" class="form-control" placeholder="Buscar producto...">
+    </div>
+    <div class="col-sm-4">
+        <button type="submit" class="btn btn-dark w-100">Buscar</button>
+    </div>
+</form>
+
+<div class="mb-4">
+    <a href="{% url 'lista_productos' %}" class="btn btn-sm btn-outline-dark">Todos</a>
+    {% for categoria in categorias %}
+        <a href="?categoria={{ categoria.pk }}" class="btn btn-sm btn-outline-dark">{{ categoria.nombre }}</a>
+    {% endfor %}
+</div>
+<div class="row row-cols-1 row-cols-sm-2 row-cols-md-3 g-4">
+    {% for producto in productos %}
+    <div class="col">
+        <div class="card h-100">
+            {% if producto.imagen %}
+                <img src="{{ producto.imagen.url }}"
+                class="card-img-top"
+                alt="{{ producto.nombre }}"
+                style="height: 250px; object-fit: contain; padding: 10px;">
+            {% endif %}
+            <div class="card-body">
+                <h5 class="card-title">{{ producto.nombre }}</h5>
+                <p class="text-muted">{{ producto.categoria }}</p>
+                <p class="fw-bold">${{ producto.precio }}</p>
+                <a href="{% url 'detalle_producto' producto.pk %}" class="btn btn-primary">Ver</a>
+            </div>
+        </div>
+    </div>
+    {% empty %}
+        <p>Aún no hay productos.</p>
+    {% endfor %}
+</div>
+{% endblock %}
