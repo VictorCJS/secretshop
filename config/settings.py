@@ -137,3 +137,4 @@ LOGIN_REDIRECT_URL = "lista_productos"
 LOGOUT_REDIRECT_URL = "lista_productos"
 MERCADOPAGO_ACCESS_TOKEN = os.environ.get("MERCADOPAGO_ACCESS_TOKEN", "")
 SITE_URL = os.environ.get("SITE_URL", "http://127.0.0.1:8000")
+MP_PAYER_EMAIL = os.environ.get("MP_PAYER_EMAIL", "test_user_7741231238480677117@testuser.com")

@@ -14,8 +14,12 @@ from django.shortcuts import render, get_object_or_404, redirect
 from django.urls import reverse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
+from functools import wraps
 
-from .forms import PedidoForm
+from django.core.exceptions import PermissionDenied
+from django.db.models import Count
+
+from .forms import PedidoForm, ProductoForm, CategoriaForm
 from .models import Producto, Categoria, Pedido, PedidoItem
 
 
@@ -263,7 +267,8 @@ def pagar_pedido(request, pk):
         ],
         "config": {"online": config_online},
     }
-
+    if settings.MP_PAYER_EMAIL:
+        cuerpo["payer"] = {"email": settings.MP_PAYER_EMAIL}
     estado, orden = mp_request("POST", "/v1/orders", cuerpo)
     if estado not in (200, 201) or not orden.get("checkout_url"):
         print("Mercado Pago respondió:", estado, orden)  # solo para desarrollo
@@ -307,3 +312,246 @@ def mp_webhook(request):
     if order_id:
         sincronizar_pago(order_id)
     return HttpResponse(status=200)
+# ---------- Panel de administración dentro del sitio ----------
+
+def solo_admin(vista):
+    """Permite el acceso solo a usuarios con sesión y permiso de staff."""
+    @wraps(vista)
+    @login_required
+    def envoltura(request, *args, **kwargs):
+        if not request.user.is_staff:
+            raise PermissionDenied
+        return vista(request, *args, **kwargs)
+    return envoltura
+
+
+@solo_admin
+def panel_inicio(request):
+    conteos = dict(Pedido.objects.values_list("estado").annotate(total=Count("id")))
+    return render(request, "tienda/panel_inicio.html", {
+        "seccion": "inicio",
+        "por_enviar": conteos.get("pagado", 0),
+        "en_camino": conteos.get("enviado", 0) + conteos.get("en_transito", 0),
+        "pendientes": conteos.get("pendiente", 0),
+        "bajo_stock": Producto.objects.filter(activo=True, stock__lte=2).count(),
+    })
+
+
+@solo_admin
+def panel_pedidos(request):
+    estado = request.GET.get("estado", Pedido.Estado.PAGADO)
+    if estado != "todos" and estado not in Pedido.Estado.values:
+        estado = Pedido.Estado.PAGADO
+
+    pedidos = Pedido.objects.select_related("usuario").prefetch_related("items")
+    if estado != "todos":
+        pedidos = pedidos.filter(estado=estado)
+
+    conteos = dict(Pedido.objects.values_list("estado").annotate(total=Count("id")))
+    pestanas = [
+        (valor, etiqueta, conteos.get(valor, 0))
+        for valor, etiqueta in Pedido.Estado.choices
+    ]
+
+    return render(request, "tienda/panel_pedidos.html", {
+        "seccion": "pedidos",
+        "pedidos": pedidos,
+        "estado": str(estado),
+        "pestanas": pestanas,
+        "estados": Pedido.Estado.choices,
+    })
+
+
+@solo_admin
+@require_POST
+def panel_cambiar_estado(request, pk):
+    pedido = get_object_or_404(Pedido, pk=pk)
+    nuevo = request.POST.get("estado")
+    guia = request.POST.get("numero_guia", "").strip()[:100]
+
+    if pedido.estado == Pedido.Estado.CANCELADO:
+        messages.warning(request, "Un pedido cancelado ya no se puede modificar.")
+    elif nuevo in Pedido.Estado.values:
+        pedido.numero_guia = guia
+        if nuevo == Pedido.Estado.CANCELADO:
+            pedido.save(update_fields=["numero_guia"])
+            pedido.cancelar()
+            messages.success(request, f"Pedido #{pedido.pk} cancelado y stock devuelto.")
+        else:
+            pedido.estado = nuevo
+            pedido.save(update_fields=["estado", "numero_guia"])
+            messages.success(request, f"Pedido #{pedido.pk} actualizado.")
+
+    volver = request.POST.get("volver", "todos")
+    if volver != "todos" and volver not in Pedido.Estado.values:
+        volver = "todos"
+    return redirect(f"{reverse('panel_pedidos')}?estado={volver}")
+
+
+@solo_admin
+def panel_productos(request):
+    productos = Producto.objects.select_related("categoria").order_by("-creado")
+    busqueda = request.GET.get("q", "").strip()
+    if busqueda:
+        productos = productos.filter(nombre__icontains=busqueda)
+    return render(request, "tienda/panel_productos.html", {
+        "seccion": "productos",
+        "productos": productos,
+        "busqueda": busqueda,
+    })
+
+
+@solo_admin
+def panel_producto_form(request, pk=None):
+    producto = get_object_or_404(Producto, pk=pk) if pk else None
+    if request.method == "POST":
+        form = ProductoForm(request.POST, request.FILES, instance=producto)
+        if form.is_valid():
+            form.save()
+            messages.success(request, "Producto guardado.")
+            return redirect("panel_productos")
+    else:
+        form = ProductoForm(instance=producto)
+    return render(request, "tienda/panel_producto_form.html", {
+        "seccion": "productos",
+        "form": form,
+        "producto": producto,
+    })
+
+
+@solo_admin
+@require_POST
+def panel_producto_activar(request, pk):
+    producto = get_object_or_404(Producto, pk=pk)
+    producto.activo = not producto.activo
+    producto.save(update_fields=["activo"])
+    messages.success(
+        request,
+        f"{producto.nombre} ahora está {'visible' if producto.activo else 'oculto'} en la tienda.",
+    )
+    return redirect("panel_productos")
+
+
+@solo_admin
+def panel_categorias(request):
+    if request.method == "POST":
+        form = CategoriaForm(request.POST)
+        if form.is_valid():
+            form.save()
+            messages.success(request, "Categoría creada.")
+            return redirect("panel_categorias")
+    else:
+        form = CategoriaForm()
+    return render(request, "tienda/panel_categorias.html", {
+        "seccion": "categorias",
+        "form": form,
+        "categorias": Categoria.objects.annotate(total=Count("productos")),
+    })
+@login_required
+@require_POST
+def cancelar_mi_pedido(request, pk):
+    pedido = get_object_or_404(Pedido, pk=pk, usuario=request.user)
+    if pedido.puede_cancelar:
+        pedido.cancelar()
+        messages.success(request, f"Pedido #{pedido.pk} cancelado.")
+    else:
+        messages.warning(request, "Solo se pueden cancelar pedidos pendientes de pago.")
+    return redirect("mis_pedidos")
+
+
+@login_required
+@require_POST
+def solicitar_cancelacion(request, pk):
+    pedido = get_object_or_404(Pedido, pk=pk, usuario=request.user)
+    if pedido.puede_solicitar_cancelacion:
+        pedido.cancelacion_solicitada = True
+        pedido.save(update_fields=["cancelacion_solicitada"])
+        messages.success(
+            request,
+            "Recibimos tu solicitud de cancelación. Te contactaremos para el reembolso.",
+        )
+    return redirect("mis_pedidos")
+
+
+@login_required
+def editar_envio(request, pk):
+    pedido = get_object_or_404(Pedido, pk=pk, usuario=request.user)
+    if not pedido.puede_editar_envio:
+        messages.warning(request, "Este pedido ya no se puede modificar.")
+        return redirect("mis_pedidos")
+
+    if request.method == "POST":
+        form = PedidoForm(request.POST, instance=pedido)
+        if form.is_valid():
+            cambios = form.save(commit=False)
+            cambios.save(update_fields=list(form.fields))
+            messages.success(request, "Datos de envío actualizados.")
+            return redirect("mis_pedidos")
+    else:
+        form = PedidoForm(instance=pedido)
+    return render(request, "tienda/editar_envio.html", {"form": form, "pedido": pedido})
+
+
+@login_required
+@require_POST
+def cancelar_mi_pedido(request, pk):
+    pedido = get_object_or_404(Pedido, pk=pk, usuario=request.user)
+    if pedido.puede_cancelar:
+        pedido.cancelar()
+        messages.success(request, f"Pedido #{pedido.pk} cancelado.")
+    else:
+        messages.warning(request, "Solo se pueden cancelar pedidos pendientes de pago.")
+    return redirect("mis_pedidos")
+
+
+@login_required
+@require_POST
+def solicitar_cancelacion(request, pk):
+    pedido = get_object_or_404(Pedido, pk=pk, usuario=request.user)
+    if pedido.puede_solicitar_cancelacion:
+        pedido.cancelacion_solicitada = True
+        pedido.save(update_fields=["cancelacion_solicitada"])
+        messages.success(
+            request,
+            "Recibimos tu solicitud de cancelación. Te contactaremos para el reembolso.",
+        )
+    return redirect("mis_pedidos")
+
+
+@login_required
+def editar_envio(request, pk):
+    pedido = get_object_or_404(Pedido, pk=pk, usuario=request.user)
+    if not pedido.puede_editar_envio:
+        messages.warning(request, "Este pedido ya no se puede modificar.")
+        return redirect("mis_pedidos")
+
+    if request.method == "POST":
+        form = PedidoForm(request.POST, instance=pedido)
+        if form.is_valid():
+            cambios = form.save(commit=False)
+            cambios.save(update_fields=list(form.fields))
+            messages.success(request, "Datos de envío actualizados.")
+            return redirect("mis_pedidos")
+    else:
+        form = PedidoForm(instance=pedido)
+    return render(request, "tienda/editar_envio.html", {"form": form, "pedido": pedido})
+
+
+@login_required
+@require_POST
+def repetir_pedido(request, pk):
+    pedido = get_object_or_404(Pedido, pk=pk, usuario=request.user)
+    carrito = request.session.get("carrito", {})
+    agregados = 0
+    for item in pedido.items.select_related("producto"):
+        producto = item.producto
+        if producto and producto.activo and producto.stock > 0:
+            clave = str(producto.pk)
+            carrito[clave] = min(carrito.get(clave, 0) + item.cantidad, producto.stock)
+            agregados += 1
+    request.session["carrito"] = carrito
+    if agregados == 0:
+        messages.warning(request, "Esos productos ya no están disponibles.")
+        return redirect("mis_pedidos")
+    messages.success(request, "Agregamos los productos a tu carrito. Ajusta lo que necesites.")
+    return redirect("ver_carrito")

@@ -1,0 +1,23 @@
+{% extends "tienda/panel_base.html" %}
+
+{% block titulo %}Categorías{% endblock %}
+
+{% block panel %}
+<form method="post" class="row g-2 mb-4 col-md-6 px-0">
+    {% csrf_token %}
+    <div class="col-8">{{ form.nombre }}</div>
+    <div class="col-4"><button type="submit" class="btn btn-dark w-100">Agregar</button></div>
+    {% if form.nombre.errors %}<div class="text-danger small">{{ form.nombre.errors|join:", " }}</div>{% endif %}
+</form>
+
+<ul class="list-group col-md-6 px-0">
+    {% for categoria in categorias %}
+    <li class="list-group-item d-flex justify-content-between">
+        <span>{{ categoria.nombre }}</span>
+        <span class="badge bg-secondary">{{ categoria.total }} producto(s)</span>
+    </li>
+    {% empty %}
+    <li class="list-group-item">Aún no hay categorías.</li>
+    {% endfor %}
+</ul>
+{% endblock %}

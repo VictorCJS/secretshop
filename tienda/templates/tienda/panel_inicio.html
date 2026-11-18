@@ -1,0 +1,43 @@
+{% extends "tienda/panel_base.html" %}
+
+{% block titulo %}Administrar{% endblock %}
+
+{% block panel %}
+<div class="row g-3">
+    <div class="col-6 col-md-3">
+        <a class="text-decoration-none" href="{% url 'panel_pedidos' %}?estado=pagado">
+            <div class="card text-center h-100"><div class="card-body">
+                <div class="display-6">{{ por_enviar }}</div>
+                <div>Por enviar</div>
+            </div></div>
+        </a>
+    </div>
+    <div class="col-6 col-md-3">
+        <a class="text-decoration-none" href="{% url 'panel_pedidos' %}?estado=enviado">
+            <div class="card text-center h-100"><div class="card-body">
+                <div class="display-6">{{ en_camino }}</div>
+                <div>Enviados / en tránsito</div>
+            </div></div>
+        </a>
+    </div>
+    <div class="col-6 col-md-3">
+        <a class="text-decoration-none" href="{% url 'panel_pedidos' %}?estado=pendiente">
+            <div class="card text-center h-100"><div class="card-body">
+                <div class="display-6">{{ pendientes }}</div>
+                <div>Pendientes de pago</div>
+            </div></div>
+        </a>
+    </div>
+    <div class="col-6 col-md-3">
+        <a class="text-decoration-none" href="{% url 'panel_productos' %}">
+            <div class="card text-center h-100"><div class="card-body">
+                <div class="display-6">{{ bajo_stock }}</div>
+                <div>Con poco stock (2 o menos)</div>
+            </div></div>
+        </a>
+    </div>
+</div>
+<div class="mt-4">
+    <a href="{% url 'panel_producto_nuevo' %}" class="btn btn-dark">+ Agregar producto</a>
+</div>
+{% endblock %}

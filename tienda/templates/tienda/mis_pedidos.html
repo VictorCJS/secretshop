@@ -9,10 +9,16 @@
 <div class="card mb-3">
     <div class="card-header d-flex justify-content-between align-items-center">
         <span>Pedido #{{ pedido.pk }} - {{ pedido.creado|date:"d/m/Y H:i" }}</span>
-        <span class="badge {% if pedido.estado == 'pagado' %}bg-success{% elif pedido.estado == 'pendiente' %}bg-warning text-dark{% else %}bg-secondary{% endif %}">
+        <span class="badge
+            {% if pedido.estado == 'pagado' or pedido.estado == 'entregado' %}bg-success
+            {% elif pedido.estado == 'pendiente' %}bg-warning text-dark
+            {% elif pedido.estado == 'enviado' or pedido.estado == 'en_transito' %}bg-info text-dark
+            {% elif pedido.estado == 'cancelado' %}bg-danger
+            {% else %}bg-secondary{% endif %}">
             {{ pedido.get_estado_display }}
         </span>
     </div>
+
     <ul class="list-group list-group-flush">
         {% for item in pedido.items.all %}
         <li class="list-group-item d-flex justify-content-between">
@@ -21,14 +27,56 @@
         </li>
         {% endfor %}
     </ul>
-    <div class="card-footer d-flex justify-content-between align-items-center">
-        {% if pedido.estado == "pendiente" %}
-            <a href="{% url 'pagar_pedido' pedido.pk %}" class="btn btn-sm btn-success">Pagar con Mercado Pago</a>
-        {% else %}
-            <span></span>
-        {% endif %}
+
+    {% if pedido.numero_guia %}
+    <div class="card-footer small">
+        Número de guía: <strong>{{ pedido.numero_guia }}</strong>
+    </div>
+    {% endif %}
+
+    <div class="card-footer d-flex flex-wrap gap-2 justify-content-between align-items-center">
+        <div class="d-flex flex-wrap gap-2 align-items-center">
+            {% if pedido.estado == "pendiente" %}
+                <a href="{% url 'pagar_pedido' pedido.pk %}" class="btn btn-sm btn-success">Pagar con Mercado Pago</a>
+            {% endif %}
+
+            {% if pedido.puede_editar_envio %}
+                <a href="{% url 'editar_envio' pedido.pk %}" class="btn btn-sm btn-outline-dark">Cambiar datos de envío</a>
+            {% endif %}
+
+            {% if pedido.puede_cancelar %}
+                <form method="post" action="{% url 'cancelar_mi_pedido' pedido.pk %}" class="d-inline"
+                      onsubmit="return confirm('¿Cancelar este pedido?');">
+                    {% csrf_token %}
+                    <button type="submit" class="btn btn-sm btn-outline-danger">Cancelar pedido</button>
+                </form>
+            {% endif %}
+
+            {% if pedido.puede_solicitar_cancelacion %}
+                <form method="post" action="{% url 'solicitar_cancelacion' pedido.pk %}" class="d-inline"
+                      onsubmit="return confirm('¿Solicitar la cancelación y el reembolso de este pedido?');">
+                    {% csrf_token %}
+                    <button type="submit" class="btn btn-sm btn-outline-danger">Solicitar cancelación</button>
+                </form>
+            {% elif pedido.estado == "pagado" and pedido.cancelacion_solicitada %}
+                <span class="badge bg-warning text-dark">Cancelación solicitada</span>
+            {% endif %}
+
+            {% if pedido.estado == "cancelado" or pedido.estado == "entregado" %}
+                <form method="post" action="{% url 'repetir_pedido' pedido.pk %}" class="d-inline">
+                    {% csrf_token %}
+                    <button type="submit" class="btn btn-sm btn-outline-secondary">Volver a pedir</button>
+                </form>
+            {% endif %}
+        </div>
         <span class="fw-bold">Total: ${{ pedido.total }}</span>
     </div>
+
+    {% if pedido.estado == "pendiente" %}
+    <div class="card-footer small text-muted">
+        ¿Quieres cambiar productos o cantidades? Cancela este pedido y pulsa «Volver a pedir».
+    </div>
+    {% endif %}
 </div>
 {% empty %}
 <p>Aún no tienes pedidos.</p>

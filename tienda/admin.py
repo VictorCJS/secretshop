@@ -22,6 +22,45 @@ class PedidoItemInline(admin.TabularInline):
 
 @admin.register(Pedido)
 class PedidoAdmin(admin.ModelAdmin):
-    list_display = ("id", "usuario", "total", "estado", "creado")
-    list_filter = ("estado",)
+    list_display = ("id", "usuario", "nombre", "total", "estado", "numero_guia", "creado")
+    list_editable = ("numero_guia",)
+    list_filter = ("estado", "creado")
+    search_fields = ("nombre", "usuario__username", "numero_guia")
+    date_hierarchy = "creado"
     inlines = [PedidoItemInline]
+    actions = ["marcar_enviado", "marcar_en_transito", "marcar_entregado", "cancelar_pedidos"]
+
+    def save_model(self, request, obj, form, change):
+        # Si se cambia el estado a "Cancelado" desde el formulario, también se devuelve el stock.
+        cancelando = (
+            change
+            and "estado" in form.changed_data
+            and obj.estado == Pedido.Estado.CANCELADO
+        )
+        if cancelando:
+            obj.estado = form.initial["estado"]
+        super().save_model(request, obj, form, change)
+        if cancelando:
+            obj.cancelar()
+
+    @admin.action(description="Marcar como enviados")
+    def marcar_enviado(self, request, queryset):
+        n = queryset.filter(estado=Pedido.Estado.PAGADO).update(estado=Pedido.Estado.ENVIADO)
+        self.message_user(request, f"{n} pedido(s) marcados como enviados.")
+
+    @admin.action(description="Marcar como en tránsito")
+    def marcar_en_transito(self, request, queryset):
+        n = queryset.filter(estado=Pedido.Estado.ENVIADO).update(estado=Pedido.Estado.EN_TRANSITO)
+        self.message_user(request, f"{n} pedido(s) marcados como en tránsito.")
+
+    @admin.action(description="Marcar como entregados")
+    def marcar_entregado(self, request, queryset):
+        n = queryset.filter(
+            estado__in=[Pedido.Estado.ENVIADO, Pedido.Estado.EN_TRANSITO]
+        ).update(estado=Pedido.Estado.ENTREGADO)
+        self.message_user(request, f"{n} pedido(s) marcados como entregados.")
+
+    @admin.action(description="Cancelar pedidos (devuelve el stock)")
+    def cancelar_pedidos(self, request, queryset):
+        n = sum(1 for pedido in queryset if pedido.cancelar())
+        self.message_user(request, f"{n} pedido(s) cancelados y con stock devuelto.")

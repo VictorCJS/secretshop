@@ -1,0 +1,61 @@
+{% extends "tienda/panel_base.html" %}
+
+{% block titulo %}Pedidos{% endblock %}
+
+{% block panel %}
+<ul class="nav nav-pills mb-4">
+    {% for valor, etiqueta, total in pestanas %}
+    <li class="nav-item">
+        <a class="nav-link {% if estado == valor %}active{% endif %}" href="?estado={{ valor }}">
+            {{ etiqueta }} <span class="badge bg-light text-dark">{{ total }}</span>
+        </a>
+    </li>
+    {% endfor %}
+    <li class="nav-item">
+        <a class="nav-link {% if estado == 'todos' %}active{% endif %}" href="?estado=todos">Todos</a>
+    </li>
+</ul>
+
+{% for pedido in pedidos %}
+<div class="card mb-3">
+    <div class="card-header d-flex justify-content-between">
+        <span>Pedido #{{ pedido.pk }} · {{ pedido.creado|date:"d/m/Y H:i" }} · {{ pedido.usuario.username }}</span>
+        <span class="badge bg-secondary">{{ pedido.get_estado_display }}</span>
+    </div>
+    <div class="card-body">
+        <p class="mb-1"><strong>{{ pedido.nombre }}</strong> · Tel: {{ pedido.telefono }}</p>
+        <p class="mb-2">{{ pedido.direccion|linebreaksbr }}</p>
+        <ul>
+            {% for item in pedido.items.all %}
+            <li>{{ item.cantidad }} x {{ item.nombre }} (${{ item.subtotal }})</li>
+            {% endfor %}
+        </ul>
+        <p class="fw-bold">Total: ${{ pedido.total }}</p>
+
+        {% if pedido.estado != "cancelado" %}
+        <form method="post" action="{% url 'panel_cambiar_estado' pedido.pk %}" class="row g-2">
+            {% csrf_token %}
+            <input type="hidden" name="volver" value="{{ estado }}">
+            <div class="col-md-4">
+                <select name="estado" class="form-select">
+                    {% for valor, etiqueta in estados %}
+                    <option value="{{ valor }}" {% if pedido.estado == valor %}selected{% endif %}>{{ etiqueta }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-md-5">
+                <input type="text" name="numero_guia" value="{{ pedido.numero_guia }}" class="form-control" placeholder="Número de guía (opcional)">
+            </div>
+            <div class="col-md-3">
+                <button type="submit" class="btn btn-dark w-100">Guardar</button>
+            </div>
+        </form>
+        {% else %}
+        <p class="text-muted mb-0">Pedido cancelado.</p>
+        {% endif %}
+    </div>
+</div>
+{% empty %}
+<p>No hay pedidos en esta sección.</p>
+{% endfor %}
+{% endblock %}

@@ -1,0 +1,13 @@
+{% extends "tienda/base.html" %}
+
+{% block titulo %}Cambiar datos de envío{% endblock %}
+
+{% block contenido %}
+<h1 class="mb-4">Datos de envío del pedido #{{ pedido.pk }}</h1>
+<form method="post" class="col-md-6 px-0">
+    {% csrf_token %}
+    {{ form.as_p }}
+    <button type="submit" class="btn btn-success">Guardar cambios</button>
+    <a href="{% url 'mis_pedidos' %}" class="btn btn-outline-secondary">Volver</a>
+</form>
+{% endblock %}

@@ -20,6 +20,9 @@
         <div class="d-flex gap-2 align-items-center">
             <a class="btn btn-sm btn-warning" href="{% url 'ver_carrito' %}">Carrito</a>
             {% if user.is_authenticated %}
+            {% if user.is_staff %}
+                <a class="btn btn-sm btn-info" href="{% url 'panel_inicio' %}">Administrar</a>
+                    {% endif %}
                 <a class="btn btn-sm btn-outline-light" href="{% url 'mis_pedidos' %}">Mis pedidos</a>
                 <span class="text-white">Hola, {{ user.username }}</span>
                 <form method="post" action="{% url 'logout' %}">

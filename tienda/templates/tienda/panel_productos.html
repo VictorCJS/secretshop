@@ -1,0 +1,45 @@
+{% extends "tienda/panel_base.html" %}
+
+{% block titulo %}Productos{% endblock %}
+
+{% block panel %}
+<div class="d-flex justify-content-between mb-3">
+    <form method="get" class="d-flex gap-2">
+        <input type="text" name="q" value="{{ busqueda }}" class="form-control" placeholder="Buscar producto...">
+        <button class="btn btn-outline-dark" type="submit">Buscar</button>
+    </form>
+    <a href="{% url 'panel_producto_nuevo' %}" class="btn btn-dark">+ Agregar producto</a>
+</div>
+
+<table class="table align-middle">
+    <thead>
+        <tr><th></th><th>Nombre</th><th>Categoría</th><th>Precio</th><th>Stock</th><th>Estado</th><th></th></tr>
+    </thead>
+    <tbody>
+        {% for producto in productos %}
+        <tr>
+            <td>{% if producto.imagen %}<img src="{{ producto.imagen.url }}" alt="" height="40">{% endif %}</td>
+            <td>{{ producto.nombre }}</td>
+            <td>{{ producto.categoria }}</td>
+            <td>${{ producto.precio }}</td>
+            <td>{{ producto.stock }}</td>
+            <td>
+                {% if producto.activo %}<span class="badge bg-success">Visible</span>
+                {% else %}<span class="badge bg-secondary">Oculto</span>{% endif %}
+            </td>
+            <td class="text-end">
+                <a href="{% url 'panel_producto_editar' producto.pk %}" class="btn btn-sm btn-outline-dark">Editar</a>
+                <form method="post" action="{% url 'panel_producto_activar' producto.pk %}" class="d-inline">
+                    {% csrf_token %}
+                    <button type="submit" class="btn btn-sm btn-outline-secondary">
+                        {% if producto.activo %}Ocultar{% else %}Mostrar{% endif %}
+                    </button>
+                </form>
+            </td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="7">Aún no hay productos.</td></tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% endblock %}
