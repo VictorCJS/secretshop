@@ -1,5 +1,7 @@
 import json
 import uuid
+import hashlib
+import hmac
 from decimal import Decimal
 from urllib import error as urlerror, request as urlrequest
 
@@ -297,11 +299,45 @@ def pago_retorno(request):
 
 
 @csrf_exempt
+def firma_webhook_valida(request, data_id):
+    secreto = settings.MP_WEBHOOK_SECRET
+    if not secreto:
+        # Sin secreto solo se permite en desarrollo.
+        return settings.DEBUG
+
+    x_signature = request.headers.get("x-signature", "")
+    x_request_id = request.headers.get("x-request-id", "")
+    partes = dict(
+        p.strip().split("=", 1) for p in x_signature.split(",") if "=" in p
+    )
+    ts = partes.get("ts", "")
+    v1 = partes.get("v1", "")
+    if not ts or not v1:
+        return False
+
+    plantilla = ""
+    if data_id:
+        plantilla += f"id:{str(data_id).lower()};"
+    if x_request_id:
+        plantilla += f"request-id:{x_request_id};"
+    plantilla += f"ts:{ts};"
+
+    calculada = hmac.new(
+        secreto.encode(), plantilla.encode(), hashlib.sha256
+    ).hexdigest()
+    return hmac.compare_digest(calculada, v1)
+
+
+@csrf_exempt
 def mp_webhook(request):
     if request.method != "POST":
         return HttpResponse(status=405)
 
-    order_id = request.GET.get("data.id")
+    data_id_url = request.GET.get("data.id")
+    if not firma_webhook_valida(request, data_id_url):
+        return HttpResponse(status=401)
+
+    order_id = data_id_url
     if not order_id:
         try:
             cuerpo = json.loads(request.body or b"{}")
@@ -312,7 +348,6 @@ def mp_webhook(request):
     if order_id:
         sincronizar_pago(order_id)
     return HttpResponse(status=200)
-# ---------- Panel de administración dentro del sitio ----------
 
 def solo_admin(vista):
     """Permite el acceso solo a usuarios con sesión y permiso de staff."""
