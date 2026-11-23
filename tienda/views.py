@@ -4,8 +4,8 @@ import hashlib
 import hmac
 from decimal import Decimal
 from urllib import error as urlerror, request as urlrequest
+from django.db.models import Count, Q
 from urllib.parse import urlencode
-
 from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth import login
@@ -18,17 +18,13 @@ from django.urls import reverse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
 from functools import wraps
-
 from django.core.exceptions import PermissionDenied
 from django.db.models import Count
-
-from django.db.models import Count, Q
 
 from .forms import BannerForm, CategoriaForm, FranquiciaForm, PedidoForm, ProductoForm, TipoForm
 from .models import (
     Banner, Categoria, Franquicia, Pedido, PedidoItem, Producto, TipoProducto,
 )
-
 
 def lista_productos(request):
     productos = Producto.objects.filter(activo=True).select_related("franquicia", "tipo")
@@ -498,7 +494,6 @@ def panel_producto_form(request, pk=None):
         "franquicias": list(Franquicia.objects.values_list("nombre", flat=True)),
         "tipos": list(TipoProducto.objects.values_list("nombre", flat=True)),
     })
-
 @solo_admin
 @require_POST
 def panel_producto_activar(request, pk):

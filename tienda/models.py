@@ -2,7 +2,6 @@ from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import models, transaction
 from django.db.models import F
-
 def validar_enlace(valor):
     """Solo se permiten direcciones del propio sitio (/...) o http(s)://..."""
     if not valor:
@@ -38,6 +37,7 @@ class Categoria(models.Model):
             repetida = repetida.exclude(pk=self.pk)
         if repetida.exists():
             raise ValidationError("Ya existe una categoría con ese nombre en este nivel.")
+
 class Franquicia(models.Model):
     nombre = models.CharField(max_length=100)
 
@@ -75,8 +75,6 @@ class TipoProducto(models.Model):
             repetida = repetida.exclude(pk=self.pk)
         if repetida.exists():
             raise ValidationError("Ya existe un tipo de producto con ese nombre.")
-
-
 class Producto(models.Model):
     categoria = models.ForeignKey(
         Categoria, null=True, blank=True, on_delete=models.PROTECT, related_name="productos"
@@ -116,6 +114,7 @@ class Banner(models.Model):
 
     def __str__(self):
         return self.titulo or f"Banner #{self.pk}"
+
 class Pedido(models.Model):
     class Estado(models.TextChoices):
         PENDIENTE = "pendiente", "Pendiente de pago"
