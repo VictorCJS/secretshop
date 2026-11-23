@@ -1,16 +1,37 @@
 from django.contrib import admin
-from .models import Categoria, Producto, Pedido, PedidoItem
+
+from .models import (
+    Banner, Categoria, Franquicia, Pedido, PedidoItem, Producto, TipoProducto,
+)
 
 
 @admin.register(Categoria)
 class CategoriaAdmin(admin.ModelAdmin):
-    pass
+    list_display = ("nombre", "padre")
+    search_fields = ("nombre",)
+
+
+@admin.register(Franquicia)
+class FranquiciaAdmin(admin.ModelAdmin):
+    search_fields = ("nombre",)
+
+
+@admin.register(TipoProducto)
+class TipoProductoAdmin(admin.ModelAdmin):
+    search_fields = ("nombre",)
+
+
+@admin.register(Banner)
+class BannerAdmin(admin.ModelAdmin):
+    list_display = ("__str__", "orden", "activo")
+    list_editable = ("orden", "activo")
 
 
 @admin.register(Producto)
 class ProductoAdmin(admin.ModelAdmin):
-    list_display = ("nombre", "categoria", "precio", "stock", "activo")
-    list_filter = ("categoria", "activo")
+    exclude = ("categoria",)
+    list_display = ("nombre", "franquicia", "tipo", "precio", "stock", "activo")
+    list_filter = ("tipo", "franquicia", "activo")
     search_fields = ("nombre",)
 
 
@@ -22,9 +43,12 @@ class PedidoItemInline(admin.TabularInline):
 
 @admin.register(Pedido)
 class PedidoAdmin(admin.ModelAdmin):
-    list_display = ("id", "usuario", "nombre", "total", "estado", "numero_guia", "creado")
+    list_display = (
+        "id", "usuario", "nombre", "total", "estado",
+        "cancelacion_solicitada", "numero_guia", "creado",
+    )
     list_editable = ("numero_guia",)
-    list_filter = ("estado", "creado")
+    list_filter = ("estado", "cancelacion_solicitada", "creado")
     search_fields = ("nombre", "usuario__username", "numero_guia")
     date_hierarchy = "creado"
     inlines = [PedidoItemInline]

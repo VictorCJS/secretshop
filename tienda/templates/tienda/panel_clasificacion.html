@@ -1,0 +1,52 @@
+{% extends "tienda/panel_base.html" %}
+
+{% block titulo %}Franquicias y tipos{% endblock %}
+
+{% block panel %}
+<div class="row g-4">
+    <div class="col-md-6">
+        <h5>Franquicias</h5>
+        <form method="post" class="d-flex gap-2 mb-2">
+            {% csrf_token %}
+            {{ form_franquicia.nombre }}
+            <button type="submit" name="guardar_franquicia" class="btn btn-dark">Agregar</button>
+        </form>
+        {% for error in form_franquicia.non_field_errors %}<div class="text-danger small">{{ error }}</div>{% endfor %}
+        {% for error in form_franquicia.nombre.errors %}<div class="text-danger small">{{ error }}</div>{% endfor %}
+
+        <ul class="list-group mt-3">
+            {% for f in franquicias %}
+            <li class="list-group-item d-flex justify-content-between">
+                <span>{{ f.nombre }}</span>
+                <span class="badge bg-secondary">{{ f.total }} producto(s)</span>
+            </li>
+            {% empty %}
+            <li class="list-group-item">Aún no hay franquicias.</li>
+            {% endfor %}
+        </ul>
+    </div>
+
+    <div class="col-md-6">
+        <h5>Tipos de producto</h5>
+        <form method="post" class="d-flex gap-2 mb-2">
+            {% csrf_token %}
+            {{ form_tipo.nombre }}
+            <button type="submit" name="guardar_tipo" class="btn btn-dark">Agregar</button>
+        </form>
+        {% for error in form_tipo.non_field_errors %}<div class="text-danger small">{{ error }}</div>{% endfor %}
+        {% for error in form_tipo.nombre.errors %}<div class="text-danger small">{{ error }}</div>{% endfor %}
+
+        <ul class="list-group mt-3">
+            {% for t in tipos %}
+            <li class="list-group-item d-flex justify-content-between">
+                <span>{{ t.nombre }}</span>
+                <span class="badge bg-secondary">{{ t.total }} producto(s)</span>
+            </li>
+            {% empty %}
+            <li class="list-group-item">Aún no hay tipos.</li>
+            {% endfor %}
+        </ul>
+    </div>
+</div>
+<p class="text-muted small mt-3">Para renombrar o borrar uno, usa <strong>/admin</strong>. No se puede borrar si tiene productos.</p>
+{% endblock %}

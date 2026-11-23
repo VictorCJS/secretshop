@@ -1,8 +1,59 @@
 {% extends "tienda/base.html" %}
 
+{% block titulo %}Catálogo{% endblock %}
+
 {% block contenido %}
-<h1 class="mb-4">Catálogo</h1>
+{% if banners %}
+<div id="carruselBanners" class="carousel slide mb-4" data-bs-ride="carousel">
+    {% if banners|length > 1 %}
+    <div class="carousel-indicators">
+        {% for banner in banners %}
+        <button type="button" data-bs-target="#carruselBanners" data-bs-slide-to="{{ forloop.counter0 }}"
+                {% if forloop.first %}class="active" aria-current="true"{% endif %}
+                aria-label="Banner {{ forloop.counter }}"></button>
+        {% endfor %}
+    </div>
+    {% endif %}
+    <div class="carousel-inner rounded overflow-hidden">
+        {% for banner in banners %}
+        <div class="carousel-item {% if forloop.first %}active{% endif %}" data-bs-interval="5000">
+            {% if banner.enlace %}<a href="{{ banner.enlace }}">{% endif %}
+            <img src="{{ banner.imagen.url }}" class="d-block w-100"
+                 style="height: 320px; object-fit: cover;"
+                 alt="{{ banner.titulo|default:'Banner' }}">
+            {% if banner.enlace %}</a>{% endif %}
+            {% if banner.titulo or banner.subtitulo %}
+            <div class="carousel-caption d-none d-md-block" style="background: rgba(0,0,0,.45); border-radius: .5rem;">
+                <h4>{{ banner.titulo }}</h4>
+                <p class="mb-0">{{ banner.subtitulo }}</p>
+            </div>
+            {% endif %}
+        </div>
+        {% endfor %}
+    </div>
+    {% if banners|length > 1 %}
+    <button class="carousel-control-prev" type="button" data-bs-target="#carruselBanners" data-bs-slide="prev">
+        <span class="carousel-control-prev-icon" aria-hidden="true"></span>
+        <span class="visually-hidden">Anterior</span>
+    </button>
+    <button class="carousel-control-next" type="button" data-bs-target="#carruselBanners" data-bs-slide="next">
+        <span class="carousel-control-next-icon" aria-hidden="true"></span>
+        <span class="visually-hidden">Siguiente</span>
+    </button>
+    {% endif %}
+</div>
+{% endif %}
+
+<h1 class="mb-3">
+    {% if franquicia_actual and tipo_actual %}{{ franquicia_actual }} · {{ tipo_actual }}
+    {% elif franquicia_actual %}{{ franquicia_actual }}
+    {% elif tipo_actual %}{{ tipo_actual }}
+    {% else %}Catálogo{% endif %}
+</h1>
+
 <form method="get" class="row g-2 mb-3">
+    {% if franquicia_actual %}<input type="hidden" name="franquicia" value="{{ franquicia_actual.pk }}">{% endif %}
+    {% if tipo_actual %}<input type="hidden" name="tipo" value="{{ tipo_actual.pk }}">{% endif %}
     <div class="col-sm-8">
         <input type="text" name="q" value="{{ busqueda }}" class="form-control" placeholder="Buscar producto...">
     </div>
@@ -11,32 +62,38 @@
     </div>
 </form>
 
-<div class="mb-4">
-    <a href="{% url 'lista_productos' %}" class="btn btn-sm btn-outline-dark">Todos</a>
-    {% for categoria in categorias %}
-        <a href="?categoria={{ categoria.pk }}" class="btn btn-sm btn-outline-dark">{{ categoria.nombre }}</a>
+<div class="d-flex flex-wrap gap-2 align-items-center mb-2">
+    <span class="text-muted small me-1">Tipo</span>
+    <a class="btn btn-sm {% if not tipo_actual %}btn-primary{% else %}btn-outline-primary{% endif %}" href="{{ url_todos_tipos }}">Todos</a>
+    {% for t in tipos_menu %}
+    <a class="btn btn-sm {% if t.activo %}btn-primary{% else %}btn-outline-primary{% endif %}" href="{{ t.url }}">{{ t.nombre }}</a>
     {% endfor %}
 </div>
+<div class="d-flex flex-wrap gap-2 align-items-center mb-4">
+    <span class="text-muted small me-1">Franquicia</span>
+    <a class="btn btn-sm {% if not franquicia_actual %}btn-primary{% else %}btn-outline-primary{% endif %}" href="{{ url_todas_franquicias }}">Todas</a>
+    {% for f in franquicias_menu %}
+    <a class="btn btn-sm {% if f.activo %}btn-primary{% else %}btn-outline-primary{% endif %}" href="{{ f.url }}">{{ f.nombre }}</a>
+    {% endfor %}
+</div>
+
 <div class="row row-cols-1 row-cols-sm-2 row-cols-md-3 g-4">
     {% for producto in productos %}
     <div class="col">
         <div class="card h-100">
             {% if producto.imagen %}
-                <img src="{{ producto.imagen.url }}"
-                class="card-img-top"
-                alt="{{ producto.nombre }}"
-                style="height: 250px; object-fit: contain; padding: 10px;">
+                <img src="{{ producto.imagen.url }}" class="card-img-top" alt="{{ producto.nombre }}">
             {% endif %}
             <div class="card-body">
                 <h5 class="card-title">{{ producto.nombre }}</h5>
-                <p class="text-muted">{{ producto.categoria }}</p>
+                <p class="text-muted">{{ producto.tipo|default_if_none:"" }}{% if producto.franquicia %} · {{ producto.franquicia }}{% endif %}</p>
                 <p class="fw-bold">${{ producto.precio }}</p>
                 <a href="{% url 'detalle_producto' producto.pk %}" class="btn btn-primary">Ver</a>
             </div>
         </div>
     </div>
     {% empty %}
-        <p>Aún no hay productos.</p>
+        <p>No hay productos con esa combinación.</p>
     {% endfor %}
 </div>
 {% endblock %}

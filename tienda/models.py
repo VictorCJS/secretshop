@@ -1,20 +1,91 @@
 from django.conf import settings
+from django.core.exceptions import ValidationError
 from django.db import models, transaction
 from django.db.models import F
 
+def validar_enlace(valor):
+    """Solo se permiten direcciones del propio sitio (/...) o http(s)://..."""
+    if not valor:
+        return
+    propio = valor.startswith("/") and not valor.startswith("//")
+    externo = valor.startswith(("http://", "https://"))
+    if not (propio or externo):
+        raise ValidationError("Usa una dirección que empiece con / (de tu sitio) o con https://")
+
 class Categoria(models.Model):
     nombre = models.CharField(max_length=100)
+    padre = models.ForeignKey(
+        "self", null=True, blank=True, on_delete=models.PROTECT, related_name="subcategorias"
+    )
 
     class Meta:
         verbose_name_plural = "categorías"
+        ordering = ["nombre"]
+
+    def __str__(self):
+        return f"{self.padre.nombre} › {self.nombre}" if self.padre_id else self.nombre
+
+    def clean(self):
+        if self.padre_id:
+            if self.padre_id == self.pk:
+                raise ValidationError("Una categoría no puede pertenecer a sí misma.")
+            if self.padre.padre_id:
+                raise ValidationError("Solo se permiten dos niveles: categoría y subcategoría.")
+            if self.pk and self.subcategorias.exists():
+                raise ValidationError("Esta categoría ya tiene subcategorías y no puede ser subcategoría.")
+        repetida = Categoria.objects.filter(padre=self.padre, nombre__iexact=self.nombre)
+        if self.pk:
+            repetida = repetida.exclude(pk=self.pk)
+        if repetida.exists():
+            raise ValidationError("Ya existe una categoría con ese nombre en este nivel.")
+class Franquicia(models.Model):
+    nombre = models.CharField(max_length=100)
+
+    class Meta:
+        verbose_name_plural = "franquicias"
+        ordering = ["nombre"]
 
     def __str__(self):
         return self.nombre
 
+    def clean(self):
+        self.nombre = " ".join(self.nombre.split())
+        repetida = Franquicia.objects.filter(nombre__iexact=self.nombre)
+        if self.pk:
+            repetida = repetida.exclude(pk=self.pk)
+        if repetida.exists():
+            raise ValidationError("Ya existe una franquicia con ese nombre.")
+
+
+class TipoProducto(models.Model):
+    nombre = models.CharField(max_length=100)
+
+    class Meta:
+        verbose_name = "tipo de producto"
+        verbose_name_plural = "tipos de producto"
+        ordering = ["nombre"]
+
+    def __str__(self):
+        return self.nombre
+
+    def clean(self):
+        self.nombre = " ".join(self.nombre.split())
+        repetida = TipoProducto.objects.filter(nombre__iexact=self.nombre)
+        if self.pk:
+            repetida = repetida.exclude(pk=self.pk)
+        if repetida.exists():
+            raise ValidationError("Ya existe un tipo de producto con ese nombre.")
+
 
 class Producto(models.Model):
     categoria = models.ForeignKey(
-        Categoria, on_delete=models.CASCADE, related_name="productos"
+        Categoria, null=True, blank=True, on_delete=models.PROTECT, related_name="productos"
+    )  # antigua: se eliminará en la limpieza
+    franquicia = models.ForeignKey(
+        Franquicia, null=True, blank=True, on_delete=models.PROTECT, related_name="productos"
+    )
+    tipo = models.ForeignKey(
+        TipoProducto, null=True, blank=True, on_delete=models.PROTECT, related_name="productos"
     )
     nombre = models.CharField(max_length=200)
     descripcion = models.TextField(blank=True)
@@ -27,7 +98,24 @@ class Producto(models.Model):
     def __str__(self):
         return self.nombre
 
+class Banner(models.Model):
+    titulo = models.CharField(max_length=120, blank=True)
+    subtitulo = models.CharField(max_length=200, blank=True)
+    imagen = models.ImageField(upload_to="banners/")
+    enlace = models.CharField(
+        max_length=300, blank=True, validators=[validar_enlace],
+        help_text="Opcional. Ejemplo: /?categoria=3 o https://...",
+    )
+    orden = models.PositiveSmallIntegerField(
+        default=0, help_text="Los números menores salen primero."
+    )
+    activo = models.BooleanField(default=True)
 
+    class Meta:
+        ordering = ["orden", "-id"]
+
+    def __str__(self):
+        return self.titulo or f"Banner #{self.pk}"
 class Pedido(models.Model):
     class Estado(models.TextChoices):
         PENDIENTE = "pendiente", "Pendiente de pago"

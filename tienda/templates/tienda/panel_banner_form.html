@@ -1,0 +1,20 @@
+{% extends "tienda/panel_base.html" %}
+
+{% block titulo %}{% if banner %}Editar banner{% else %}Nuevo banner{% endif %}{% endblock %}
+
+{% block panel %}
+<h4 class="mb-3">{% if banner %}Editar banner{% else %}Nuevo banner{% endif %}</h4>
+<form method="post" enctype="multipart/form-data" class="col-md-8 px-0">
+    {% csrf_token %}
+    {% for campo in form %}
+    <div class="mb-3">
+        <label class="form-label" for="{{ campo.id_for_label }}">{{ campo.label }}</label>
+        {{ campo }}
+        {% if campo.help_text %}<div class="form-text">{{ campo.help_text }}</div>{% endif %}
+        {% if campo.errors %}<div class="text-danger small">{{ campo.errors|join:", " }}</div>{% endif %}
+    </div>
+    {% endfor %}
+    <button type="submit" class="btn btn-success">Guardar</button>
+    <a href="{% url 'panel_banners' %}" class="btn btn-outline-secondary">Cancelar</a>
+</form>
+{% endblock %}

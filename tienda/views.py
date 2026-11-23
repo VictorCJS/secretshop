@@ -4,6 +4,7 @@ import hashlib
 import hmac
 from decimal import Decimal
 from urllib import error as urlerror, request as urlrequest
+from urllib.parse import urlencode
 
 from django.conf import settings
 from django.contrib import messages
@@ -21,29 +22,73 @@ from functools import wraps
 from django.core.exceptions import PermissionDenied
 from django.db.models import Count
 
-from .forms import PedidoForm, ProductoForm, CategoriaForm
-from .models import Producto, Categoria, Pedido, PedidoItem
+from django.db.models import Count, Q
+
+from .forms import BannerForm, CategoriaForm, FranquiciaForm, PedidoForm, ProductoForm, TipoForm
+from .models import (
+    Banner, Categoria, Franquicia, Pedido, PedidoItem, Producto, TipoProducto,
+)
 
 
 def lista_productos(request):
-    productos = Producto.objects.filter(activo=True)
-    categorias = Categoria.objects.all()
+    productos = Producto.objects.filter(activo=True).select_related("franquicia", "tipo")
 
-    categoria_id = request.GET.get("categoria")
-    busqueda = request.GET.get("q")
+    def a_numero(valor):
+        return int(valor) if valor.isdigit() else None
 
-    if categoria_id:
-        productos = productos.filter(categoria_id=categoria_id)
+    franquicia_actual = None
+    tipo_actual = None
+    id_franquicia = a_numero(request.GET.get("franquicia", ""))
+    id_tipo = a_numero(request.GET.get("tipo", ""))
+    if id_franquicia:
+        franquicia_actual = Franquicia.objects.filter(pk=id_franquicia).first()
+    if id_tipo:
+        tipo_actual = TipoProducto.objects.filter(pk=id_tipo).first()
+    busqueda = request.GET.get("q", "").strip()
+
+    if franquicia_actual:
+        productos = productos.filter(franquicia=franquicia_actual)
+    if tipo_actual:
+        productos = productos.filter(tipo=tipo_actual)
     if busqueda:
         productos = productos.filter(nombre__icontains=busqueda)
 
+    def url(franquicia=franquicia_actual, tipo=tipo_actual):
+        """Dirección que conserva los filtros actuales y cambia el indicado."""
+        params = {}
+        if franquicia:
+            params["franquicia"] = franquicia.pk
+        if tipo:
+            params["tipo"] = tipo.pk
+        if busqueda:
+            params["q"] = busqueda
+        return ("?" + urlencode(params)) if params else reverse("lista_productos")
+
+    tipos_menu = [
+        {"nombre": t.nombre, "url": url(tipo=t), "activo": t == tipo_actual}
+        for t in TipoProducto.objects.filter(productos__activo=True).distinct()
+    ]
+    franquicias_menu = [
+        {"nombre": f.nombre, "url": url(franquicia=f), "activo": f == franquicia_actual}
+        for f in Franquicia.objects.filter(productos__activo=True).distinct()
+    ]
+
+    # Los banners solo se muestran en el catálogo completo, sin filtros ni búsqueda.
+    banners = []
+    if not franquicia_actual and not tipo_actual and not busqueda:
+        banners = Banner.objects.filter(activo=True)
+
     return render(request, "tienda/lista.html", {
         "productos": productos,
-        "categorias": categorias,
-        "categoria_actual": categoria_id,
-        "busqueda": busqueda or "",
+        "banners": banners,
+        "busqueda": busqueda,
+        "franquicia_actual": franquicia_actual,
+        "tipo_actual": tipo_actual,
+        "tipos_menu": tipos_menu,
+        "franquicias_menu": franquicias_menu,
+        "url_todos_tipos": url(tipo=None),
+        "url_todas_franquicias": url(franquicia=None),
     })
-
 
 def detalle_producto(request, pk):
     producto = get_object_or_404(Producto, pk=pk, activo=True)
@@ -425,7 +470,7 @@ def panel_cambiar_estado(request, pk):
 
 @solo_admin
 def panel_productos(request):
-    productos = Producto.objects.select_related("categoria").order_by("-creado")
+    productos = Producto.objects.select_related("franquicia", "tipo").order_by("-creado")
     busqueda = request.GET.get("q", "").strip()
     if busqueda:
         productos = productos.filter(nombre__icontains=busqueda)
@@ -434,7 +479,6 @@ def panel_productos(request):
         "productos": productos,
         "busqueda": busqueda,
     })
-
 
 @solo_admin
 def panel_producto_form(request, pk=None):
@@ -451,8 +495,9 @@ def panel_producto_form(request, pk=None):
         "seccion": "productos",
         "form": form,
         "producto": producto,
+        "franquicias": list(Franquicia.objects.values_list("nombre", flat=True)),
+        "tipos": list(TipoProducto.objects.values_list("nombre", flat=True)),
     })
-
 
 @solo_admin
 @require_POST
@@ -473,14 +518,19 @@ def panel_categorias(request):
         form = CategoriaForm(request.POST)
         if form.is_valid():
             form.save()
-            messages.success(request, "Categoría creada.")
+            messages.success(request, "Categoría guardada.")
             return redirect("panel_categorias")
     else:
         form = CategoriaForm()
+    padres = (
+        Categoria.objects.filter(padre__isnull=True)
+        .prefetch_related("subcategorias")
+        .annotate(total=Count("productos"))
+    )
     return render(request, "tienda/panel_categorias.html", {
         "seccion": "categorias",
         "form": form,
-        "categorias": Categoria.objects.annotate(total=Count("productos")),
+        "padres": padres,
     })
 @login_required
 @require_POST
@@ -590,3 +640,72 @@ def repetir_pedido(request, pk):
         return redirect("mis_pedidos")
     messages.success(request, "Agregamos los productos a tu carrito. Ajusta lo que necesites.")
     return redirect("ver_carrito")
+@solo_admin
+def panel_banners(request):
+    return render(request, "tienda/panel_banners.html", {
+        "seccion": "banners",
+        "banners": Banner.objects.all(),
+    })
+
+
+@solo_admin
+def panel_banner_form(request, pk=None):
+    banner = get_object_or_404(Banner, pk=pk) if pk else None
+    if request.method == "POST":
+        form = BannerForm(request.POST, request.FILES, instance=banner)
+        if form.is_valid():
+            form.save()
+            messages.success(request, "Banner guardado.")
+            return redirect("panel_banners")
+    else:
+        form = BannerForm(instance=banner)
+    return render(request, "tienda/panel_banner_form.html", {
+        "seccion": "banners",
+        "form": form,
+        "banner": banner,
+    })
+
+
+@solo_admin
+@require_POST
+def panel_banner_activar(request, pk):
+    banner = get_object_or_404(Banner, pk=pk)
+    banner.activo = not banner.activo
+    banner.save(update_fields=["activo"])
+    messages.success(request, f"Banner {'activado' if banner.activo else 'desactivado'}.")
+    return redirect("panel_banners")
+
+
+@solo_admin
+@require_POST
+def panel_banner_borrar(request, pk):
+    banner = get_object_or_404(Banner, pk=pk)
+    banner.delete()
+    messages.success(request, "Banner eliminado.")
+    return redirect("panel_banners")
+@solo_admin
+def panel_clasificacion(request):
+    form_franquicia = FranquiciaForm(prefix="f")
+    form_tipo = TipoForm(prefix="t")
+
+    if request.method == "POST":
+        if "guardar_franquicia" in request.POST:
+            form_franquicia = FranquiciaForm(request.POST, prefix="f")
+            if form_franquicia.is_valid():
+                form_franquicia.save()
+                messages.success(request, "Franquicia creada.")
+                return redirect("panel_clasificacion")
+        elif "guardar_tipo" in request.POST:
+            form_tipo = TipoForm(request.POST, prefix="t")
+            if form_tipo.is_valid():
+                form_tipo.save()
+                messages.success(request, "Tipo de producto creado.")
+                return redirect("panel_clasificacion")
+
+    return render(request, "tienda/panel_clasificacion.html", {
+        "seccion": "clasificacion",
+        "form_franquicia": form_franquicia,
+        "form_tipo": form_tipo,
+        "franquicias": Franquicia.objects.annotate(total=Count("productos")),
+        "tipos": TipoProducto.objects.annotate(total=Count("productos")),
+    })

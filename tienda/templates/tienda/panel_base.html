@@ -6,7 +6,8 @@
     <li class="nav-item"><a class="nav-link {% if seccion == 'inicio' %}active{% endif %}" href="{% url 'panel_inicio' %}">Resumen</a></li>
     <li class="nav-item"><a class="nav-link {% if seccion == 'pedidos' %}active{% endif %}" href="{% url 'panel_pedidos' %}">Pedidos</a></li>
     <li class="nav-item"><a class="nav-link {% if seccion == 'productos' %}active{% endif %}" href="{% url 'panel_productos' %}">Productos</a></li>
-    <li class="nav-item"><a class="nav-link {% if seccion == 'categorias' %}active{% endif %}" href="{% url 'panel_categorias' %}">Categorías</a></li>
+    <li class="nav-item"><a class="nav-link {% if seccion == 'clasificacion' %}active{% endif %}" href="{% url 'panel_clasificacion' %}">Franquicias y tipos</a></li>
+    <li class="nav-item"><a class="nav-link {% if seccion == 'banners' %}active{% endif %}" href="{% url 'panel_banners' %}">Banners</a></li>
 </ul>
 {% block panel %}{% endblock %}
 {% endblock %}

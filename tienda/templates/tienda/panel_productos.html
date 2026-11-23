@@ -13,14 +13,15 @@
 
 <table class="table align-middle">
     <thead>
-        <tr><th></th><th>Nombre</th><th>Categoría</th><th>Precio</th><th>Stock</th><th>Estado</th><th></th></tr>
+        <tr><th></th><th>Nombre</th><th>Franquicia</th><th>Tipo</th><th>Precio</th><th>Stock</th><th>Estado</th><th></th></tr>
     </thead>
     <tbody>
         {% for producto in productos %}
         <tr>
             <td>{% if producto.imagen %}<img src="{{ producto.imagen.url }}" alt="" height="40">{% endif %}</td>
             <td>{{ producto.nombre }}</td>
-            <td>{{ producto.categoria }}</td>
+            <td>{{ producto.franquicia|default_if_none:"—" }}</td>
+            <td>{{ producto.tipo|default_if_none:"—" }}</td>
             <td>${{ producto.precio }}</td>
             <td>{{ producto.stock }}</td>
             <td>
@@ -38,7 +39,7 @@
             </td>
         </tr>
         {% empty %}
-        <tr><td colspan="7">Aún no hay productos.</td></tr>
+        <tr><td colspan="8">Aún no hay productos.</td></tr>
         {% endfor %}
     </tbody>
 </table>

@@ -3,18 +3,33 @@
 {% block titulo %}Categorías{% endblock %}
 
 {% block panel %}
-<form method="post" class="row g-2 mb-4 col-md-6 px-0">
+<form method="post" class="row g-2 mb-4">
     {% csrf_token %}
-    <div class="col-8">{{ form.nombre }}</div>
-    <div class="col-4"><button type="submit" class="btn btn-dark w-100">Agregar</button></div>
-    {% if form.nombre.errors %}<div class="text-danger small">{{ form.nombre.errors|join:", " }}</div>{% endif %}
+    <div class="col-md-4">{{ form.nombre }}</div>
+    <div class="col-md-5">{{ form.padre }}</div>
+    <div class="col-md-3"><button type="submit" class="btn btn-dark w-100">Agregar</button></div>
+    {% for error in form.non_field_errors %}<div class="text-danger small">{{ error }}</div>{% endfor %}
+    {% for campo in form %}{% for error in campo.errors %}<div class="text-danger small">{{ error }}</div>{% endfor %}{% endfor %}
 </form>
+<p class="text-muted small">Para crear una subcategoría, elige en «Pertenece a» la categoría principal (por ejemplo, TCG).</p>
 
-<ul class="list-group col-md-6 px-0">
-    {% for categoria in categorias %}
-    <li class="list-group-item d-flex justify-content-between">
-        <span>{{ categoria.nombre }}</span>
-        <span class="badge bg-secondary">{{ categoria.total }} producto(s)</span>
+<ul class="list-group col-md-8 px-0">
+    {% for padre in padres %}
+    <li class="list-group-item">
+        <div class="d-flex justify-content-between fw-bold">
+            <span>{{ padre.nombre }}</span>
+            <span class="badge bg-secondary">{{ padre.total }} directo(s)</span>
+        </div>
+        {% if padre.subcategorias.all %}
+        <ul class="list-unstyled ms-3 mt-2 mb-0">
+            {% for sub in padre.subcategorias.all %}
+            <li class="d-flex justify-content-between">
+                <span>↳ {{ sub.nombre }}</span>
+                <span class="text-muted small">{{ sub.productos.count }} producto(s)</span>
+            </li>
+            {% endfor %}
+        </ul>
+        {% endif %}
     </li>
     {% empty %}
     <li class="list-group-item">Aún no hay categorías.</li>

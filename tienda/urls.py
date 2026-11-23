@@ -28,4 +28,10 @@ urlpatterns = [
     path("pedido/<int:pk>/solicitar-cancelacion/", views.solicitar_cancelacion, name="solicitar_cancelacion"),
     path("pedido/<int:pk>/editar-envio/", views.editar_envio, name="editar_envio"),
     path("pedido/<int:pk>/repetir/", views.repetir_pedido, name="repetir_pedido"),
+    path("administrar/banners/", views.panel_banners, name="panel_banners"),
+    path("administrar/banners/nuevo/", views.panel_banner_form, name="panel_banner_nuevo"),
+    path("administrar/banners/<int:pk>/editar/", views.panel_banner_form, name="panel_banner_editar"),
+    path("administrar/banners/<int:pk>/activar/", views.panel_banner_activar, name="panel_banner_activar"),
+    path("administrar/banners/<int:pk>/borrar/", views.panel_banner_borrar, name="panel_banner_borrar"),
+    path("administrar/clasificacion/", views.panel_clasificacion, name="panel_clasificacion"),
 ]

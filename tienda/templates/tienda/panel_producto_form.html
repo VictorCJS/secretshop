@@ -5,16 +5,53 @@
 {% block panel %}
 <h4 class="mb-3">{% if producto %}Editar: {{ producto.nombre }}{% else %}Nuevo producto{% endif %}</h4>
 
-<form method="post" enctype="multipart/form-data" class="col-md-8 px-0">
+<form method="post" enctype="multipart/form-data" class="col-md-8 px-0" autocomplete="off">
     {% csrf_token %}
     {% for campo in form %}
     <div class="mb-3">
         <label class="form-label" for="{{ campo.id_for_label }}">{{ campo.label }}</label>
         {{ campo }}
+        {% if campo.name == "franquicia_texto" or campo.name == "tipo_texto" %}
+            <div id="aviso-{{ campo.name }}" class="form-text text-primary"></div>
+        {% endif %}
+        {% if campo.help_text %}<div class="form-text">{{ campo.help_text }}</div>{% endif %}
         {% if campo.errors %}<div class="text-danger small">{{ campo.errors|join:", " }}</div>{% endif %}
     </div>
     {% endfor %}
     <button type="submit" class="btn btn-success">Guardar</button>
     <a href="{% url 'panel_productos' %}" class="btn btn-outline-secondary">Cancelar</a>
 </form>
+
+<datalist id="lista-franquicias">
+    {% for nombre in franquicias %}<option value="{{ nombre }}"></option>{% endfor %}
+</datalist>
+<datalist id="lista-tipos">
+    {% for nombre in tipos %}<option value="{{ nombre }}"></option>{% endfor %}
+</datalist>
+{{ franquicias|json_script:"datos-franquicias" }}
+{{ tipos|json_script:"datos-tipos" }}
+
+<script>
+(function () {
+    function normalizar(t) { return t.trim().replace(/\s+/g, " ").toLowerCase(); }
+
+    function vincular(idCampo, idDatos, etiqueta) {
+        var campo = document.getElementById(idCampo);
+        var aviso = document.getElementById("aviso-" + campo.name);
+        var existentes = JSON.parse(document.getElementById(idDatos).textContent);
+
+        function actualizar() {
+            var texto = normalizar(campo.value);
+            if (!texto) { aviso.textContent = ""; return; }
+            var existe = existentes.some(function (n) { return normalizar(n) === texto; });
+            aviso.textContent = existe ? "" : "Se creará " + etiqueta + " «" + campo.value.trim() + "».";
+        }
+        campo.addEventListener("input", actualizar);
+        actualizar();
+    }
+
+    vincular("id_franquicia_texto", "datos-franquicias", "la franquicia");
+    vincular("id_tipo_texto", "datos-tipos", "el tipo");
+})();
+</script>
 {% endblock %}
