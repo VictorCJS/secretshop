@@ -1,0 +1,264 @@
+{% extends "tienda/panel_base.html" %}
+
+{% block titulo %}Nueva venta{% endblock %}
+
+{% block panel %}
+<form method="post" id="form-venta">
+    {% csrf_token %}
+    <div id="campos-items"></div>
+
+    <div class="row g-4">
+        <div class="col-lg-6">
+            <h5>Productos</h5>
+            <input type="search" id="buscador" class="form-control mb-2" placeholder="Buscar producto..." autocomplete="off">
+            <div id="lista-productos" class="list-group" style="max-height: 480px; overflow-y: auto;"></div>
+            <div id="aviso-lista" class="form-text"></div>
+        </div>
+
+        <div class="col-lg-6">
+            <h5>Venta actual</h5>
+            <table class="table table-sm align-middle">
+                <thead><tr><th>Producto</th><th style="width: 120px;">Cant.</th><th class="text-end">Subtotal</th><th></th></tr></thead>
+                <tbody id="filas-venta"></tbody>
+                <tfoot>
+                    <tr><th colspan="2" class="text-end">Total</th><th class="text-end" id="total-venta">$0.00</th><th></th></tr>
+                </tfoot>
+            </table>
+
+            <div class="mb-3">
+                <label class="form-label" for="cliente">Cliente (opcional)</label>
+                <input type="text" name="cliente" id="cliente" class="form-control" maxlength="200" value="">
+            </div>
+
+            <div class="mb-3">
+                <div class="form-check form-check-inline">
+                    <input class="form-check-input" type="radio" name="metodo" id="m-efectivo" value="efectivo" checked>
+                    <label class="form-check-label" for="m-efectivo">Efectivo</label>
+                </div>
+                <div class="form-check form-check-inline">
+                    <input class="form-check-input" type="radio" name="metodo" id="m-transferencia" value="transferencia">
+                    <label class="form-check-label" for="m-transferencia">Transferencia</label>
+                </div>
+            </div>
+
+            <div id="bloque-efectivo" class="mb-3">
+                <label class="form-label" for="recibido">Monto recibido</label>
+                <input type="text" inputmode="decimal" name="recibido" id="recibido" class="form-control" placeholder="Déjalo vacío si pagó exacto">
+                <div class="form-text fw-bold" id="cambio"></div>
+            </div>
+
+            <div id="bloque-transferencia" class="mb-3" style="display: none;">
+                <label class="form-label" for="referencia">Referencia o clave de rastreo (opcional)</label>
+                <input type="text" name="referencia" id="referencia" class="form-control" maxlength="100">
+                <div class="form-check mt-2">
+                    <input class="form-check-input" type="checkbox" name="transferencia_confirmada" id="transferencia_confirmada">
+                    <label class="form-check-label" for="transferencia_confirmada">Confirmo que ya recibí la transferencia en mi banco</label>
+                </div>
+            </div>
+
+            <button type="submit" id="btn-cobrar" class="btn btn-success w-100" disabled>Cobrar y registrar venta</button>
+        </div>
+    </div>
+</form>
+
+{{ catalogo|json_script:"datos-catalogo" }}
+{{ previo|json_script:"datos-previo" }}
+
+<script>
+(function () {
+    var catalogo = JSON.parse(document.getElementById("datos-catalogo").textContent);
+    var previo = JSON.parse(document.getElementById("datos-previo").textContent);
+
+    var porId = {};
+    catalogo.forEach(function (p) {
+        p.centavos = Math.round(parseFloat(p.precio) * 100);
+        porId[p.id] = p;
+    });
+
+    var carrito = {};
+    (previo.items || []).forEach(function (it) {
+        var p = porId[it.id];
+        if (p) { carrito[it.id] = Math.min(it.cantidad, p.stock); }
+    });
+
+    var form = document.getElementById("form-venta");
+    var buscador = document.getElementById("buscador");
+    var lista = document.getElementById("lista-productos");
+    var avisoLista = document.getElementById("aviso-lista");
+    var filas = document.getElementById("filas-venta");
+    var totalEl = document.getElementById("total-venta");
+    var campos = document.getElementById("campos-items");
+    var boton = document.getElementById("btn-cobrar");
+    var recibido = document.getElementById("recibido");
+    var cambioEl = document.getElementById("cambio");
+    var bloqueEfectivo = document.getElementById("bloque-efectivo");
+    var bloqueTransf = document.getElementById("bloque-transferencia");
+    var confirmada = document.getElementById("transferencia_confirmada");
+    var metodos = document.querySelectorAll("input[name=metodo]");
+    var cliente = document.getElementById("cliente");
+
+    cliente.value = previo.cliente || "";
+    metodos.forEach(function (m) { m.checked = (m.value === previo.metodo); });
+
+    function dinero(c) { return "$" + (c / 100).toFixed(2); }
+    function normalizar(t) {
+        return t.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+    }
+    function metodoActual() {
+        var m = document.querySelector("input[name=metodo]:checked");
+        return m ? m.value : "efectivo";
+    }
+    function totalCentavos() {
+        var t = 0;
+        Object.keys(carrito).forEach(function (id) { t += porId[id].centavos * carrito[id]; });
+        return t;
+    }
+    function agregar(id) {
+        var p = porId[id];
+        if ((carrito[id] || 0) < p.stock) { carrito[id] = (carrito[id] || 0) + 1; }
+        dibujar();
+    }
+    function cambiar(id, delta) {
+        var p = porId[id];
+        var n = (carrito[id] || 0) + delta;
+        if (n <= 0) { delete carrito[id]; }
+        else { carrito[id] = Math.min(n, p.stock); }
+        dibujar();
+    }
+
+    function dibujarCatalogo() {
+        var q = normalizar(buscador.value.trim());
+        lista.innerHTML = "";
+        var mostrados = 0, coincidencias = 0;
+        catalogo.forEach(function (p) {
+            if (q && normalizar(p.nombre + " " + p.detalle).indexOf(q) === -1) { return; }
+            coincidencias++;
+            if (mostrados >= 50) { return; }
+            mostrados++;
+            var enVenta = carrito[p.id] || 0;
+            var b = document.createElement("button");
+            b.type = "button";
+            b.className = "list-group-item list-group-item-action d-flex justify-content-between align-items-center";
+            b.disabled = enVenta >= p.stock;
+            var izq = document.createElement("div");
+            var nombre = document.createElement("div");
+            nombre.textContent = p.nombre;
+            var det = document.createElement("div");
+            det.className = "small text-muted";
+            det.textContent = p.detalle + (p.detalle ? " · " : "") + "stock " + p.stock;
+            izq.appendChild(nombre);
+            izq.appendChild(det);
+            var der = document.createElement("span");
+            der.className = "fw-bold";
+            der.textContent = dinero(p.centavos);
+            b.appendChild(izq);
+            b.appendChild(der);
+            b.addEventListener("click", function () { agregar(p.id); });
+            lista.appendChild(b);
+        });
+        avisoLista.textContent = coincidencias > mostrados
+            ? "Mostrando " + mostrados + " de " + coincidencias + ". Escribe para filtrar."
+            : (coincidencias === 0 ? "No hay productos con ese nombre." : "");
+    }
+
+    function dibujarVenta() {
+        filas.innerHTML = "";
+        Object.keys(carrito).forEach(function (id) {
+            var p = porId[id];
+            var cant = carrito[id];
+            var tr = document.createElement("tr");
+
+            var tdNombre = document.createElement("td");
+            tdNombre.textContent = p.nombre;
+
+            var tdCant = document.createElement("td");
+            var menos = document.createElement("button");
+            menos.type = "button";
+            menos.className = "btn btn-sm btn-outline-secondary";
+            menos.textContent = "−";
+            menos.addEventListener("click", function () { cambiar(id, -1); });
+            var num = document.createElement("span");
+            num.className = "mx-2";
+            num.textContent = cant;
+            var mas = document.createElement("button");
+            mas.type = "button";
+            mas.className = "btn btn-sm btn-outline-secondary";
+            mas.textContent = "+";
+            mas.disabled = cant >= p.stock;
+            mas.addEventListener("click", function () { cambiar(id, 1); });
+            tdCant.appendChild(menos);
+            tdCant.appendChild(num);
+            tdCant.appendChild(mas);
+
+            var tdSub = document.createElement("td");
+            tdSub.className = "text-end";
+            tdSub.textContent = dinero(p.centavos * cant);
+
+            var tdQuitar = document.createElement("td");
+            var quitar = document.createElement("button");
+            quitar.type = "button";
+            quitar.className = "btn btn-sm btn-outline-danger";
+            quitar.textContent = "×";
+            quitar.addEventListener("click", function () { delete carrito[id]; dibujar(); });
+            tdQuitar.appendChild(quitar);
+
+            tr.appendChild(tdNombre);
+            tr.appendChild(tdCant);
+            tr.appendChild(tdSub);
+            tr.appendChild(tdQuitar);
+            filas.appendChild(tr);
+        });
+        totalEl.textContent = dinero(totalCentavos());
+    }
+
+    function actualizarPago() {
+        var m = metodoActual();
+        bloqueEfectivo.style.display = (m === "efectivo") ? "" : "none";
+        bloqueTransf.style.display = (m === "transferencia") ? "" : "none";
+
+        var total = totalCentavos();
+        var hayItems = total > 0;
+        var puede = hayItems;
+        cambioEl.textContent = "";
+
+        if (m === "efectivo") {
+            var txt = recibido.value.replace(",", ".").trim();
+            if (txt !== "") {
+                var monto = Math.round(parseFloat(txt) * 100);
+                if (isNaN(monto)) { puede = false; cambioEl.textContent = "Monto no válido."; }
+                else if (monto < total) { puede = false; cambioEl.textContent = "Faltan " + dinero(total - monto) + "."; }
+                else { cambioEl.textContent = "Cambio: " + dinero(monto - total); }
+            }
+        } else {
+            puede = puede && confirmada.checked;
+        }
+        boton.disabled = !puede;
+    }
+
+    function dibujar() {
+        dibujarCatalogo();
+        dibujarVenta();
+        actualizarPago();
+    }
+
+    form.addEventListener("submit", function () {
+        campos.innerHTML = "";
+        Object.keys(carrito).forEach(function (id) {
+            var a = document.createElement("input");
+            a.type = "hidden"; a.name = "producto_id"; a.value = id;
+            var b = document.createElement("input");
+            b.type = "hidden"; b.name = "cantidad"; b.value = carrito[id];
+            campos.appendChild(a);
+            campos.appendChild(b);
+        });
+    });
+
+    buscador.addEventListener("input", dibujarCatalogo);
+    recibido.addEventListener("input", actualizarPago);
+    confirmada.addEventListener("change", actualizarPago);
+    metodos.forEach(function (m) { m.addEventListener("change", actualizarPago); });
+
+    dibujar();
+})();
+</script>
+{% endblock %}

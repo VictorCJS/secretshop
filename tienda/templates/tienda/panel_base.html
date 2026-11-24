@@ -8,6 +8,9 @@
     <li class="nav-item"><a class="nav-link {% if seccion == 'productos' %}active{% endif %}" href="{% url 'panel_productos' %}">Productos</a></li>
     <li class="nav-item"><a class="nav-link {% if seccion == 'clasificacion' %}active{% endif %}" href="{% url 'panel_clasificacion' %}">Franquicias y tipos</a></li>
     <li class="nav-item"><a class="nav-link {% if seccion == 'banners' %}active{% endif %}" href="{% url 'panel_banners' %}">Banners</a></li>
+    <li class="nav-item"><a class="nav-link {% if seccion == 'venta_fisica' %}active{% endif %}" href="{% url 'panel_venta_fisica' %}">Vender en tienda</a></li>
+    <li class="nav-item"><a class="nav-link {% if seccion == 'ventas' %}active{% endif %}" href="{% url 'panel_ventas' %}">Corte y ventas</a></li>
+
 </ul>
 {% block panel %}{% endblock %}
 {% endblock %}

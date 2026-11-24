@@ -1,0 +1,70 @@
+{% extends "tienda/panel_base.html" %}
+
+{% block titulo %}Corte y ventas{% endblock %}
+
+{% block panel %}
+<div class="d-flex flex-wrap justify-content-between gap-2 mb-3">
+    <form method="get" class="d-flex gap-2 align-items-center">
+        <input type="date" name="fecha" value="{{ fecha|date:'Y-m-d' }}" max="{{ hoy|date:'Y-m-d' }}" class="form-control">
+        <button class="btn btn-outline-dark" type="submit">Ver</button>
+        {% if fecha != hoy %}<a href="{% url 'panel_ventas' %}" class="btn btn-link">Hoy</a>{% endif %}
+    </form>
+    <a href="{% url 'panel_venta_fisica' %}" class="btn btn-success">+ Nueva venta</a>
+</div>
+
+<div class="row g-3 mb-4">
+    <div class="col-md-4">
+        <div class="card text-center"><div class="card-body">
+            <div class="text-muted small">Efectivo ({{ efectivo.n }})</div>
+            <div class="fs-4 fw-bold">${{ efectivo.total }}</div>
+        </div></div>
+    </div>
+    <div class="col-md-4">
+        <div class="card text-center"><div class="card-body">
+            <div class="text-muted small">Transferencias ({{ transferencia.n }})</div>
+            <div class="fs-4 fw-bold">${{ transferencia.total }}</div>
+        </div></div>
+    </div>
+    <div class="col-md-4">
+        <div class="card text-center border-dark"><div class="card-body">
+            <div class="text-muted small">Total del día</div>
+            <div class="fs-4 fw-bold">${{ total_dia }}</div>
+        </div></div>
+    </div>
+</div>
+{% if n_anuladas %}<p class="text-muted small">{{ n_anuladas }} venta(s) anulada(s) no se cuentan en los totales.</p>{% endif %}
+
+<table class="table align-middle">
+    <thead><tr><th>#</th><th>Hora</th><th>Productos</th><th>Cliente</th><th>Pago</th><th class="text-end">Total</th><th></th></tr></thead>
+    <tbody>
+        {% for venta in ventas %}
+        <tr {% if venta.estado == "cancelado" %}class="text-muted"{% endif %}>
+            <td>{{ venta.pk }}</td>
+            <td>{{ venta.creado|time:"H:i" }}</td>
+            <td class="small">
+                {% for item in venta.items.all %}{{ item.cantidad }}× {{ item.nombre }}{% if not forloop.last %}, {% endif %}{% endfor %}
+            </td>
+            <td>{{ venta.nombre }}</td>
+            <td>
+                {{ venta.get_metodo_pago_display }}
+                {% if venta.referencia_pago %}<div class="small text-muted">{{ venta.referencia_pago }}</div>{% endif %}
+            </td>
+            <td class="text-end">${{ venta.total }}</td>
+            <td class="text-end">
+                {% if venta.estado == "cancelado" %}<span class="badge bg-danger">Anulada</span>{% endif %}
+                <a href="{% url 'panel_venta_ticket' venta.pk %}" class="btn btn-sm btn-outline-dark">Ticket</a>
+                {% if venta.estado != "cancelado" %}
+                <form method="post" action="{% url 'panel_venta_anular' venta.pk %}" class="d-inline"
+                      onsubmit="return confirm('¿Anular esta venta? Se devuelve el stock.');">
+                    {% csrf_token %}
+                    <button type="submit" class="btn btn-sm btn-outline-danger">Anular</button>
+                </form>
+                {% endif %}
+            </td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="7">No hay ventas en esta fecha.</td></tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% endblock %}

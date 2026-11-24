@@ -20,6 +20,13 @@ from django.views.decorators.http import require_POST
 from functools import wraps
 from django.core.exceptions import PermissionDenied
 from django.db.models import Count
+from decimal import Decimal, InvalidOperation
+from django.core.exceptions import ValidationError
+from .models import registrar_venta_fisica
+from datetime import date
+
+from django.db.models import Count, Sum
+from django.utils import timezone
 
 from .forms import BannerForm, CategoriaForm, FranquiciaForm, PedidoForm, ProductoForm, TipoForm
 from .models import (
@@ -704,3 +711,190 @@ def panel_clasificacion(request):
         "franquicias": Franquicia.objects.annotate(total=Count("productos")),
         "tipos": TipoProducto.objects.annotate(total=Count("productos")),
     })
+@solo_admin
+def panel_venta_fisica(request):
+    productos = (
+        Producto.objects.filter(activo=True, stock__gt=0)
+        .select_related("franquicia", "tipo")
+        .order_by("nombre")
+    )
+    if request.method == "POST":
+        metodo = request.POST.get("metodo_pago", "")
+        cliente = " ".join(request.POST.get("cliente", "").split())[:200]
+        referencia = request.POST.get("referencia", "").strip()[:100]
+        confirmada = request.POST.get("transferencia_confirmada") == "on"
+
+        try:
+            lineas = []
+            for p in productos:
+                cant = int(request.POST.get(f"cant_{p.pk}") or 0)
+                if cant > 0:
+                    texto = request.POST.get(f"precio_{p.pk}", "").replace(",", ".").strip()
+                    precio = Decimal(texto) if texto else p.precio
+                    lineas.append((p.pk, cant, precio))
+
+            if metodo not in ("efectivo", "transferencia"):
+                raise ValidationError("Elige cómo pagó el cliente.")
+            if metodo == "transferencia" and not confirmada:
+                raise ValidationError("Confirma que ya recibiste la transferencia.")
+
+            recibido = None
+            if metodo == "efectivo":
+                texto = request.POST.get("recibido", "").replace(",", ".").strip()
+                if texto:
+                    recibido = Decimal(texto)
+
+            pedido = registrar_venta_fisica(
+                lineas, metodo,
+                usuario=request.user,
+                cliente=cliente,
+                monto_recibido=recibido,
+                referencia=referencia,
+            )
+        except (ValueError, InvalidOperation):
+            messages.error(request, "Revisa las cantidades y los precios.")
+        except ValidationError as e:
+            messages.error(request, e.messages[0])
+        else:
+            messages.success(request, f"Venta #{pedido.pk} registrada: ${pedido.total}")
+            return redirect("panel_venta_ticket", pk=pedido.pk)
+        return redirect("panel_venta_fisica")
+
+    return render(request, "tienda/panel_venta_fisica.html", {
+        "seccion": "venta_fisica",
+        "productos": productos,
+    })
+@solo_admin
+def panel_venta_nueva(request):
+    previo = {"items": [], "metodo": "efectivo", "cliente": ""}
+
+    if request.method == "POST":
+        ids = request.POST.getlist("producto_id")
+        cantidades = request.POST.getlist("cantidad")
+        metodo = request.POST.get("metodo", "")
+        cliente = " ".join(request.POST.get("cliente", "").split())[:200]
+        referencia = request.POST.get("referencia", "").strip()[:100]
+        confirmada = request.POST.get("transferencia_confirmada") == "on"
+
+        lineas = {}
+        for pid, cant in zip(ids, cantidades):
+            if pid.isdigit() and cant.isdigit() and int(cant) > 0:
+                lineas[int(pid)] = lineas.get(int(pid), 0) + int(cant)
+
+        previo = {
+            "items": [{"id": pid, "cantidad": c} for pid, c in lineas.items()],
+            "metodo": metodo if metodo in ("efectivo", "transferencia") else "efectivo",
+            "cliente": cliente,
+        }
+
+        error = None
+        recibido = None
+        if not lineas:
+            error = "Agrega al menos un producto."
+        elif metodo not in ("efectivo", "transferencia"):
+            error = "Elige cómo pagó el cliente."
+        elif metodo == "transferencia" and not confirmada:
+            error = "Confirma que ya recibiste la transferencia."
+        elif metodo == "efectivo":
+            texto = request.POST.get("recibido", "").replace(",", ".").strip()
+            if texto:
+                try:
+                    recibido = Decimal(texto)
+                except InvalidOperation:
+                    error = "El monto recibido no es válido."
+
+        if not error:
+            try:
+                venta = registrar_venta_fisica(
+                    [(pid, cant, None) for pid, cant in lineas.items()],
+                    metodo_pago=metodo,
+                    usuario=request.user,
+                    cliente=cliente,
+                    monto_recibido=recibido,
+                    referencia=referencia,
+                )
+            except ValidationError as e:
+                error = " ".join(e.messages)
+            else:
+                messages.success(request, f"Venta #{venta.pk} registrada.")
+                return redirect("panel_venta_ticket", pk=venta.pk)
+
+        messages.error(request, error)
+
+    productos = (
+        Producto.objects.filter(activo=True, stock__gt=0)
+        .select_related("franquicia", "tipo")
+        .order_by("nombre")
+    )
+    catalogo = [
+        {
+            "id": p.pk,
+            "nombre": p.nombre,
+            "precio": str(p.precio),
+            "stock": p.stock,
+            "detalle": " · ".join(
+                x for x in (str(p.tipo) if p.tipo else "", str(p.franquicia) if p.franquicia else "") if x
+            ),
+        }
+        for p in productos
+    ]
+    return render(request, "tienda/panel_venta_nueva.html", {
+        "seccion": "ventas",
+        "catalogo": catalogo,
+        "previo": previo,
+    })
+@solo_admin
+def panel_venta_ticket(request, pk):
+    venta = get_object_or_404(
+        Pedido.objects.prefetch_related("items"), pk=pk, canal=Pedido.Canal.FISICO
+    )
+    return render(request, "tienda/panel_venta_ticket.html", {
+        "venta": venta,
+        "seccion": "ventas",
+    })
+
+
+@solo_admin
+def panel_ventas(request):
+    hoy = timezone.localdate()
+    try:
+        fecha = date.fromisoformat(request.GET.get("fecha", ""))
+    except ValueError:
+        fecha = hoy
+
+    ventas = (
+        Pedido.objects.filter(canal=Pedido.Canal.FISICO, creado__date=fecha)
+        .select_related("usuario")
+        .prefetch_related("items")
+        .order_by("-creado")
+    )
+    validas = ventas.exclude(estado=Pedido.Estado.CANCELADO).order_by()
+    por_metodo = {
+        fila["metodo_pago"]: fila
+        for fila in validas.values("metodo_pago").annotate(total=Sum("total"), n=Count("id"))
+    }
+    vacio = {"total": 0, "n": 0}
+
+    return render(request, "tienda/panel_ventas.html", {
+        "seccion": "ventas",
+        "fecha": fecha,
+        "hoy": hoy,
+        "ventas": ventas,
+        "efectivo": por_metodo.get("efectivo", vacio),
+        "transferencia": por_metodo.get("transferencia", vacio),
+        "total_dia": validas.aggregate(t=Sum("total"))["t"] or 0,
+        "n_anuladas": ventas.filter(estado=Pedido.Estado.CANCELADO).count(),
+    })
+
+
+@solo_admin
+@require_POST
+def panel_venta_anular(request, pk):
+    venta = get_object_or_404(Pedido, pk=pk, canal=Pedido.Canal.FISICO)
+    if venta.cancelar():
+        messages.success(
+            request,
+            f"Venta #{venta.pk} anulada y stock devuelto. Recuerda devolver el dinero al cliente.",
+        )
+    fecha = timezone.localtime(venta.creado).date().isoformat()
+    return redirect(f"{reverse('panel_ventas')}?fecha={fecha}")

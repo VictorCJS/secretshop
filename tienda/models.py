@@ -2,6 +2,7 @@ from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import models, transaction
 from django.db.models import F
+from decimal import Decimal
 def validar_enlace(valor):
     """Solo se permiten direcciones del propio sitio (/...) o http(s)://..."""
     if not valor:
@@ -116,6 +117,12 @@ class Banner(models.Model):
         return self.titulo or f"Banner #{self.pk}"
 
 class Pedido(models.Model):
+    class Canal(models.TextChoices):
+        ONLINE = "online", "Online"
+        FISICO = "fisico", "Físico"
+
+    canal = models.CharField(max_length=10, choices=Canal.choices, default=Canal.ONLINE)
+    metodo_pago = models.CharField(max_length=20, blank=True)
     class Estado(models.TextChoices):
         PENDIENTE = "pendiente", "Pendiente de pago"
         PAGADO = "pagado", "Pagado, por enviar"
@@ -125,7 +132,8 @@ class Pedido(models.Model):
         CANCELADO = "cancelado", "Cancelado"
 
     usuario = models.ForeignKey(
-        settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="pedidos"
+        settings.AUTH_USER_MODEL, null=True, blank=True,
+        on_delete=models.PROTECT, related_name="pedidos",
     )
     nombre = models.CharField(max_length=200)
     direccion = models.TextField()
@@ -140,6 +148,8 @@ class Pedido(models.Model):
     mp_order_id = models.CharField(max_length=64, blank=True)
     numero_guia = models.CharField(max_length=100, blank=True)
     cancelacion_solicitada = models.BooleanField(default=False)
+    referencia_pago = models.CharField(max_length=100, blank=True)
+    monto_recibido = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
 
     class Meta:
         ordering = ["-creado"]
@@ -172,6 +182,11 @@ class Pedido(models.Model):
     @property
     def puede_solicitar_cancelacion(self):
         return self.estado == self.Estado.PAGADO and not self.cancelacion_solicitada
+    @property
+    def cambio(self):
+        if self.monto_recibido is None:
+            return None
+        return self.monto_recibido - self.total
 
 class PedidoItem(models.Model):
     pedido = models.ForeignKey(
@@ -190,3 +205,58 @@ class PedidoItem(models.Model):
     @property
     def subtotal(self):
         return self.precio * self.cantidad
+def registrar_venta_fisica(
+    lineas, metodo_pago="", usuario=None, cliente="",
+    monto_recibido=None, referencia="",
+):
+    """lineas = [(producto_id, cantidad, precio_o_None), ...]
+
+    Si el precio es None se usa el precio actual del producto.
+    Si algo falla, se lanza ValidationError y no se guarda nada.
+    """
+    if not lineas:
+        raise ValidationError("No agregaste ningún producto.")
+
+    with transaction.atomic():
+        pedido = Pedido.objects.create(
+            usuario=usuario,
+            canal=Pedido.Canal.FISICO,
+            metodo_pago=metodo_pago,
+            nombre=cliente or "Venta física",
+            direccion="Venta en mostrador",
+            total=0,
+            estado=Pedido.Estado.ENTREGADO,
+            referencia_pago=referencia if metodo_pago == "transferencia" else "",
+        )
+        total = Decimal("0")
+
+        for producto_id, cantidad, precio in lineas:
+            if cantidad < 1:
+                raise ValidationError("La cantidad debe ser de al menos 1.")
+            try:
+                p = Producto.objects.select_for_update().get(pk=producto_id)
+            except Producto.DoesNotExist:
+                raise ValidationError("Uno de los productos ya no existe.")
+            if p.stock < cantidad:
+                raise ValidationError(f"Solo quedan {p.stock} de {p.nombre}.")
+
+            precio = p.precio if precio is None else Decimal(str(precio))
+            if precio < 0:
+                raise ValidationError("El precio no puede ser negativo.")
+
+            p.stock -= cantidad
+            p.save(update_fields=["stock"])
+            PedidoItem.objects.create(
+                pedido=pedido, producto=p, nombre=p.nombre,
+                precio=precio, cantidad=cantidad,
+            )
+            total += precio * cantidad
+
+        if metodo_pago == "efectivo":
+            if monto_recibido is not None and monto_recibido < total:
+                raise ValidationError("El monto recibido es menor al total.")
+            pedido.monto_recibido = monto_recibido if monto_recibido is not None else total
+
+        pedido.total = total
+        pedido.save(update_fields=["total", "monto_recibido"])
+    return pedido

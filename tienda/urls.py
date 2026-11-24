@@ -34,4 +34,10 @@ urlpatterns = [
     path("administrar/banners/<int:pk>/activar/", views.panel_banner_activar, name="panel_banner_activar"),
     path("administrar/banners/<int:pk>/borrar/", views.panel_banner_borrar, name="panel_banner_borrar"),
     path("administrar/clasificacion/", views.panel_clasificacion, name="panel_clasificacion"),
+    path("panel/venta-fisica/", views.panel_venta_fisica, name="panel_venta_fisica"),
+    path("administrar/ventas/", views.panel_ventas, name="panel_ventas"),
+    path("administrar/ventas/<int:pk>/ticket/", views.panel_venta_ticket, name="panel_venta_ticket"),
+    path("administrar/ventas/<int:pk>/anular/", views.panel_venta_anular, name="panel_venta_anular"),
+
+
 ]

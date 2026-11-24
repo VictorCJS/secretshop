@@ -1,0 +1,53 @@
+{% extends "tienda/base.html" %}
+
+{% block titulo %}Ticket #{{ venta.pk }}{% endblock %}
+
+{% block contenido %}
+<style>
+    @media print {
+        nav, .no-imprimir, .alert { display: none !important; }
+        main { margin: 0 !important; padding: 0 !important; }
+    }
+</style>
+
+<div class="mx-auto" style="max-width: 420px;">
+    <div class="text-center mb-3">
+        <h5 class="mb-0">Secret Store in the Hood</h5>
+        <div class="small text-muted">Ticket de venta #{{ venta.pk }}</div>
+        <div class="small text-muted">{{ venta.creado|date:"d/m/Y H:i" }}</div>
+        {% if venta.estado == "cancelado" %}<div class="fw-bold text-danger mt-2">VENTA ANULADA</div>{% endif %}
+    </div>
+
+    <table class="table table-sm">
+        <thead><tr><th>Producto</th><th class="text-end">Cant.</th><th class="text-end">Importe</th></tr></thead>
+        <tbody>
+            {% for item in venta.items.all %}
+            <tr>
+                <td>{{ item.nombre }}<div class="small text-muted">${{ item.precio }} c/u</div></td>
+                <td class="text-end">{{ item.cantidad }}</td>
+                <td class="text-end">${{ item.subtotal }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+        <tfoot>
+            <tr><th colspan="2" class="text-end">Total</th><th class="text-end">${{ venta.total }}</th></tr>
+        </tfoot>
+    </table>
+
+    <p class="mb-1">Pago: <strong>{{ venta.get_metodo_pago_display }}</strong></p>
+    {% if venta.metodo_pago == "efectivo" %}
+        <p class="mb-1">Recibido: ${{ venta.monto_recibido }}</p>
+        <p class="mb-1">Cambio: ${{ venta.cambio }}</p>
+    {% elif venta.referencia_pago %}
+        <p class="mb-1">Referencia: {{ venta.referencia_pago }}</p>
+    {% endif %}
+    {% if venta.usuario %}<p class="small text-muted mb-0">Atendió: {{ venta.usuario.username }}</p>{% endif %}
+    <p class="text-center mt-3">¡Gracias por tu compra!</p>
+
+    <div class="no-imprimir d-flex flex-wrap gap-2 mt-3">
+        <button type="button" class="btn btn-dark" onclick="window.print()">Imprimir</button>
+        <a href="{% url 'panel_venta_fisica' %}" class="btn btn-success">Nueva venta</a>
+        <a href="{% url 'panel_ventas' %}" class="btn btn-outline-secondary">Corte y ventas</a>
+    </div>
+</div>
+{% endblock %}

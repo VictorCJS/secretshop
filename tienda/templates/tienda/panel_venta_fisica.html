@@ -1,0 +1,172 @@
+{% extends "tienda/panel_base.html" %}
+
+{% block titulo %}Venta en tienda{% endblock %}
+
+{% block panel %}
+<form method="post" id="form-venta">
+    {% csrf_token %}
+
+    <div class="d-flex flex-wrap justify-content-between gap-2 mb-3">
+        <input type="search" id="buscador" class="form-control" style="max-width: 360px;"
+               placeholder="Buscar producto..." autocomplete="off">
+        <a href="{% url 'panel_ventas' %}" class="btn btn-outline-dark">Ventas y corte del día</a>
+    </div>
+
+    <div class="table-responsive mb-3" style="max-height: 420px; overflow-y: auto;">
+        <table class="table table-sm align-middle mb-0">
+            <thead>
+                <tr>
+                    <th style="position: sticky; top: 0; background: #fff;">Producto</th>
+                    <th style="position: sticky; top: 0; background: #fff;">Stock</th>
+                    <th style="position: sticky; top: 0; background: #fff; width: 130px;">Precio</th>
+                    <th style="position: sticky; top: 0; background: #fff; width: 110px;">Cantidad</th>
+                    <th style="position: sticky; top: 0; background: #fff;" class="text-end">Subtotal</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for p in productos %}
+                <tr class="fila-producto" data-nombre="{{ p.nombre }} {{ p.tipo|default_if_none:'' }} {{ p.franquicia|default_if_none:'' }}">
+                    <td>
+                        {{ p.nombre }}
+                        <div class="small text-muted">{{ p.tipo|default_if_none:"" }}{% if p.franquicia %} · {{ p.franquicia }}{% endif %}</div>
+                    </td>
+                    <td>{{ p.stock }}</td>
+                    <td>
+                        <input type="text" inputmode="decimal" name="precio_{{ p.pk }}"
+                               value="{{ p.precio|stringformat:'.2f' }}" class="form-control form-control-sm campo-precio">
+                    </td>
+                    <td>
+                        <input type="number" name="cant_{{ p.pk }}" min="0" max="{{ p.stock }}" value="0"
+                               class="form-control form-control-sm campo-cantidad">
+                    </td>
+                    <td class="text-end subtotal">$0.00</td>
+                </tr>
+                {% empty %}
+                <tr><td colspan="5">No hay productos con stock.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    <div class="row g-3">
+        <div class="col-md-6">
+            <label class="form-label" for="cliente">Cliente (opcional)</label>
+            <input type="text" name="cliente" id="cliente" class="form-control" maxlength="200">
+
+            <div class="mt-3">
+                <div class="form-check form-check-inline">
+                    <input class="form-check-input" type="radio" name="metodo_pago" id="m-efectivo" value="efectivo" checked>
+                    <label class="form-check-label" for="m-efectivo">Efectivo</label>
+                </div>
+                <div class="form-check form-check-inline">
+                    <input class="form-check-input" type="radio" name="metodo_pago" id="m-transferencia" value="transferencia">
+                    <label class="form-check-label" for="m-transferencia">Transferencia</label>
+                </div>
+            </div>
+
+            <div id="bloque-efectivo" class="mt-3">
+                <label class="form-label" for="recibido">Monto recibido</label>
+                <input type="text" inputmode="decimal" name="recibido" id="recibido" class="form-control"
+                       placeholder="Déjalo vacío si pagó exacto">
+                <div class="form-text fw-bold" id="cambio"></div>
+            </div>
+
+            <div id="bloque-transferencia" class="mt-3" style="display: none;">
+                <label class="form-label" for="referencia">Referencia o clave de rastreo (opcional)</label>
+                <input type="text" name="referencia" id="referencia" class="form-control" maxlength="100">
+                <div class="form-check mt-2">
+                    <input class="form-check-input" type="checkbox" name="transferencia_confirmada" id="transferencia_confirmada">
+                    <label class="form-check-label" for="transferencia_confirmada">
+                        Confirmo que ya recibí la transferencia en mi banco
+                    </label>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-body text-center">
+                    <div class="text-muted">Total</div>
+                    <div class="display-6 fw-bold" id="total-venta">$0.00</div>
+                    <button type="submit" id="btn-cobrar" class="btn btn-success w-100 mt-3" disabled>
+                        Cobrar y registrar venta
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</form>
+
+<script>
+(function () {
+    var filas = document.querySelectorAll(".fila-producto");
+    var buscador = document.getElementById("buscador");
+    var totalEl = document.getElementById("total-venta");
+    var boton = document.getElementById("btn-cobrar");
+    var recibido = document.getElementById("recibido");
+    var cambioEl = document.getElementById("cambio");
+    var bloqueEfectivo = document.getElementById("bloque-efectivo");
+    var bloqueTransf = document.getElementById("bloque-transferencia");
+    var confirmada = document.getElementById("transferencia_confirmada");
+    var metodos = document.querySelectorAll("input[name=metodo_pago]");
+
+    function dinero(c) { return "$" + (c / 100).toFixed(2); }
+    function aCentavos(texto) {
+        var n = parseFloat(String(texto).replace(",", ".").trim());
+        return isNaN(n) ? NaN : Math.round(n * 100);
+    }
+    function normalizar(t) {
+        return t.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+    }
+    function metodoActual() {
+        return document.querySelector("input[name=metodo_pago]:checked").value;
+    }
+
+    function calcular() {
+        var total = 0;
+        filas.forEach(function (fila) {
+            var cant = parseInt(fila.querySelector(".campo-cantidad").value, 10) || 0;
+            var precio = aCentavos(fila.querySelector(".campo-precio").value);
+            var sub = (cant > 0 && !isNaN(precio)) ? precio * cant : 0;
+            fila.querySelector(".subtotal").textContent = dinero(sub);
+            total += sub;
+        });
+        totalEl.textContent = dinero(total);
+
+        var m = metodoActual();
+        bloqueEfectivo.style.display = (m === "efectivo") ? "" : "none";
+        bloqueTransf.style.display = (m === "transferencia") ? "" : "none";
+
+        var puede = total > 0;
+        cambioEl.textContent = "";
+        if (m === "efectivo") {
+            if (recibido.value.trim() !== "") {
+                var monto = aCentavos(recibido.value);
+                if (isNaN(monto)) { puede = false; cambioEl.textContent = "Monto no válido."; }
+                else if (monto < total) { puede = false; cambioEl.textContent = "Faltan " + dinero(total - monto) + "."; }
+                else { cambioEl.textContent = "Cambio: " + dinero(monto - total); }
+            }
+        } else {
+            puede = puede && confirmada.checked;
+        }
+        boton.disabled = !puede;
+    }
+
+    function filtrar() {
+        var q = normalizar(buscador.value.trim());
+        filas.forEach(function (fila) {
+            fila.style.display = (!q || normalizar(fila.dataset.nombre).indexOf(q) !== -1) ? "" : "none";
+        });
+    }
+
+    document.querySelectorAll(".campo-cantidad, .campo-precio").forEach(function (c) {
+        c.addEventListener("input", calcular);
+    });
+    recibido.addEventListener("input", calcular);
+    confirmada.addEventListener("change", calcular);
+    metodos.forEach(function (m) { m.addEventListener("change", calcular); });
+    buscador.addEventListener("input", filtrar);
+    calcular();
+})();
+</script>
+{% endblock %}
