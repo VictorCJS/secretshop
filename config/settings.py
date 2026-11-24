@@ -25,21 +25,24 @@ load_dotenv(BASE_DIR / ".env")
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/6.1/howto/deployment/checklist/
 
-# SECURITY WARNING: keep the secret key used in production secret!
+# DEBUG solo es True si la variable DEBUG vale exactamente "True".
+# En tu .env local pon DEBUG=True; en Railway pon DEBUG=False.
 DEBUG = os.environ.get("DEBUG", "False") == "True"
 
+# SECURITY WARNING: keep the secret key used in production secret!
 SECRET_KEY = os.environ.get("SECRET_KEY", "")
 if not SECRET_KEY:
-    raise ImproperlyConfigured("Falta la variable SECRET_KEY en el .env")
+    raise ImproperlyConfigured("Falta la variable SECRET_KEY (en el .env o en Railway)")
 
+# Separados por comas. Cuando tengas dominio propio, agrégalo aquí o en las variables de Railway.
 ALLOWED_HOSTS = [
     h.strip()
-    for h in os.environ.get("ALLOWED_HOSTS", "127.0.0.1,localhost").split(",")
+    for h in os.environ.get("ALLOWED_HOSTS", "127.0.0.1,localhost,.railway.app").split(",")
     if h.strip()
 ]
 CSRF_TRUSTED_ORIGINS = [
     o.strip()
-    for o in os.environ.get("CSRF_TRUSTED_ORIGINS", "").split(",")
+    for o in os.environ.get("CSRF_TRUSTED_ORIGINS", "https://*.railway.app").split(",")
     if o.strip()
 ]
 
@@ -58,6 +61,7 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    'whitenoise.middleware.WhiteNoiseMiddleware',  # sirve los archivos estáticos en producción
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -89,12 +93,18 @@ WSGI_APPLICATION = 'config.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/6.1/ref/settings/#databases
 
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
+# En Railway existe DATABASE_URL (PostgreSQL). En tu computadora usa SQLite.
+if os.environ.get("DATABASE_URL"):
+    DATABASES = {
+        "default": dj_database_url.config(conn_max_age=600),
     }
-}
+else:
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.sqlite3',
+            'NAME': BASE_DIR / 'db.sqlite3',
+        }
+    }
 
 
 # Password validation
@@ -119,9 +129,10 @@ AUTH_PASSWORD_VALIDATORS = [
 # Internationalization
 # https://docs.djangoproject.com/en/6.1/topics/i18n/
 
-LANGUAGE_CODE = 'en-us'
+LANGUAGE_CODE = 'es-mx'
 
-TIME_ZONE = 'UTC'
+# Importante para el corte del día: agrupa las ventas por tu hora local, no por UTC.
+TIME_ZONE = 'America/Mexico_City'
 
 USE_I18N = True
 
@@ -132,6 +143,14 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/6.1/howto/static-files/
 
 STATIC_URL = 'static/'
+STATIC_ROOT = BASE_DIR / "staticfiles"
+# Solo se usa si creas una carpeta "static" junto a manage.py (por ejemplo, para el logo).
+STATICFILES_DIRS = [BASE_DIR / "static"] if (BASE_DIR / "static").exists() else []
+
+STORAGES = {
+    "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
+    "staticfiles": {"BACKEND": "whitenoise.storage.CompressedStaticFilesStorage"},
+}
 
 
 # Email
@@ -160,16 +179,31 @@ else:
             "BACKEND": "django.core.mail.backends.console.EmailBackend",
         },
     }
+
+
+# Archivos subidos (imágenes de productos y banners)
+# En Railway, monta un Volume en /app/media para que no se borren al redeployar.
 MEDIA_URL = "/media/"
 MEDIA_ROOT = BASE_DIR / "media"
+
 LOGIN_URL = "login"
 LOGIN_REDIRECT_URL = "lista_productos"
 LOGOUT_REDIRECT_URL = "lista_productos"
+
+
+# Mercado Pago
 MERCADOPAGO_ACCESS_TOKEN = os.environ.get("MERCADOPAGO_ACCESS_TOKEN", "")
+# En Railway pon SITE_URL con tu dirección https (por ejemplo https://algo.up.railway.app)
 SITE_URL = os.environ.get("SITE_URL", "http://127.0.0.1:8000")
 MP_PAYER_EMAIL = os.environ.get("MP_PAYER_EMAIL", "test_user_7741231238480677117@testuser.com")
 MP_WEBHOOK_SECRET = os.environ.get("MP_WEBHOOK_SECRET", "")
+
+
+# Seguridad en producción (solo cuando DEBUG es False)
 if not DEBUG:
+    # Railway termina el HTTPS en su proxy; sin esta línea, SECURE_SSL_REDIRECT
+    # causaría un bucle infinito de redirecciones.
+    SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
     SECURE_SSL_REDIRECT = True
     SESSION_COOKIE_SECURE = True
     CSRF_COOKIE_SECURE = True
