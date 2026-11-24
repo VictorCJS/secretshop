@@ -76,6 +76,56 @@ class TipoProducto(models.Model):
             repetida = repetida.exclude(pk=self.pk)
         if repetida.exists():
             raise ValidationError("Ya existe un tipo de producto con ese nombre.")
+
+class Linea(models.Model):
+    """Línea o formato del producto: Nendoroid, Pop Up Parade, Booster Box…"""
+    nombre = models.CharField(max_length=100)
+
+    class Meta:
+        verbose_name = "línea"
+        verbose_name_plural = "líneas"
+        ordering = ["nombre"]
+
+    def __str__(self):
+        return self.nombre
+
+    def clean(self):
+        self.nombre = " ".join(self.nombre.split())
+        repetida = Linea.objects.filter(nombre__iexact=self.nombre)
+        if self.pk:
+            repetida = repetida.exclude(pk=self.pk)
+        if repetida.exists():
+            raise ValidationError("Ya existe una línea con ese nombre.")
+
+
+class Condicion(models.Model):
+    """Estado del producto, definido para cada tipo (Nuevo/Usado, Gradeado/Raw/Sellado/Dañado…)."""
+    tipo = models.ForeignKey(
+        TipoProducto, on_delete=models.CASCADE, related_name="condiciones"
+    )
+    nombre = models.CharField(max_length=60)
+
+    class Meta:
+        verbose_name = "estado"
+        verbose_name_plural = "estados"
+        ordering = ["tipo__nombre", "nombre"]
+        constraints = [
+            models.UniqueConstraint(fields=["tipo", "nombre"], name="condicion_unica_por_tipo"),
+        ]
+
+    def __str__(self):
+        return f"{self.tipo} · {self.nombre}"
+
+    def clean(self):
+        self.nombre = " ".join(self.nombre.split())
+        if not self.tipo_id:
+            return
+        repetida = Condicion.objects.filter(tipo_id=self.tipo_id, nombre__iexact=self.nombre)
+        if self.pk:
+            repetida = repetida.exclude(pk=self.pk)
+        if repetida.exists():
+            raise ValidationError("Ese tipo ya tiene un estado con ese nombre.")
+
 class Producto(models.Model):
     categoria = models.ForeignKey(
         Categoria, null=True, blank=True, on_delete=models.PROTECT, related_name="productos"
@@ -86,6 +136,13 @@ class Producto(models.Model):
     tipo = models.ForeignKey(
         TipoProducto, null=True, blank=True, on_delete=models.PROTECT, related_name="productos"
     )
+    linea = models.ForeignKey(
+        Linea, null=True, blank=True, on_delete=models.PROTECT, related_name="productos"
+    )
+    condicion = models.ForeignKey(
+        Condicion, null=True, blank=True, on_delete=models.PROTECT, related_name="productos"
+    )
+    detalle_condicion = models.CharField(max_length=120, blank=True)
     nombre = models.CharField(max_length=200)
     descripcion = models.TextField(blank=True)
     precio = models.DecimalField(max_digits=10, decimal_places=2)
@@ -96,7 +153,18 @@ class Producto(models.Model):
 
     def __str__(self):
         return self.nombre
+class ProductoImagen(models.Model):
+    producto = models.ForeignKey(
+        Producto, on_delete=models.CASCADE, related_name="imagenes"
+    )
+    imagen = models.ImageField(upload_to="productos/")
+    creado = models.DateTimeField(auto_now_add=True)
 
+    class Meta:
+        verbose_name = "foto adicional"
+        verbose_name_plural = "fotos adicionales"
+        ordering = ["id"]
+        
 class Banner(models.Model):
     titulo = models.CharField(max_length=120, blank=True)
     subtitulo = models.CharField(max_length=200, blank=True)

@@ -7,17 +7,37 @@
 
 <form method="post" enctype="multipart/form-data" class="col-md-8 px-0" autocomplete="off">
     {% csrf_token %}
+    {% for error in form.non_field_errors %}<div class="alert alert-danger">{{ error }}</div>{% endfor %}
+
     {% for campo in form %}
+    {% if campo.name != "eliminar_imagenes" %}
     <div class="mb-3">
         <label class="form-label" for="{{ campo.id_for_label }}">{{ campo.label }}</label>
         {{ campo }}
-        {% if campo.name == "franquicia_texto" or campo.name == "tipo_texto" %}
+        {% if campo.name == "franquicia_texto" or campo.name == "tipo_texto" or campo.name == "linea_texto" or campo.name == "condicion" %}
             <div id="aviso-{{ campo.name }}" class="form-text text-primary"></div>
         {% endif %}
         {% if campo.help_text %}<div class="form-text">{{ campo.help_text }}</div>{% endif %}
         {% if campo.errors %}<div class="text-danger small">{{ campo.errors|join:", " }}</div>{% endif %}
     </div>
+    {% endif %}
     {% endfor %}
+
+    {% if producto and producto.imagenes.all %}
+    <div class="mb-3">
+        <label class="form-label">Fotos adicionales actuales</label>
+        <div class="d-flex flex-wrap gap-3">
+            {% for foto in producto.imagenes.all %}
+            <div class="text-center">
+                <img src="{{ foto.imagen.url }}" alt="" height="90" class="border rounded d-block mb-1">
+                <label class="small"><input type="checkbox" name="eliminar_imagenes" value="{{ foto.pk }}"> Quitar</label>
+            </div>
+            {% endfor %}
+        </div>
+        <div class="form-text">Marca las que quieras quitar y pulsa Guardar.</div>
+    </div>
+    {% endif %}
+
     <button type="submit" class="btn btn-success">Guardar</button>
     <a href="{% url 'panel_productos' %}" class="btn btn-outline-secondary">Cancelar</a>
 </form>
@@ -28,8 +48,12 @@
 <datalist id="lista-tipos">
     {% for nombre in tipos %}<option value="{{ nombre }}"></option>{% endfor %}
 </datalist>
+<datalist id="lista-lineas">
+    {% for nombre in lineas %}<option value="{{ nombre }}"></option>{% endfor %}
+</datalist>
 {{ franquicias|json_script:"datos-franquicias" }}
 {{ tipos|json_script:"datos-tipos" }}
+{{ lineas|json_script:"datos-lineas" }}
 
 <script>
 (function () {
@@ -52,6 +76,31 @@
 
     vincular("id_franquicia_texto", "datos-franquicias", "la franquicia");
     vincular("id_tipo_texto", "datos-tipos", "el tipo");
+    vincular("id_linea_texto", "datos-lineas", "la línea");
+
+    // Los estados mostrados dependen del tipo escrito.
+    var tipo = document.getElementById("id_tipo_texto");
+    var condicion = document.getElementById("id_condicion");
+    var avisoCondicion = document.getElementById("aviso-condicion");
+
+    function filtrarEstados() {
+        var texto = normalizar(tipo.value);
+        var visibles = 0;
+        Array.prototype.forEach.call(condicion.options, function (op) {
+            if (!op.value) { op.hidden = false; op.disabled = false; return; }
+            var coincide = normalizar(op.getAttribute("data-tipo") || "") === texto;
+            op.hidden = !coincide;
+            op.disabled = !coincide;
+            if (coincide) { visibles++; }
+        });
+        var actual = condicion.options[condicion.selectedIndex];
+        if (actual && actual.value && actual.disabled) { condicion.value = ""; }
+        avisoCondicion.textContent = (texto && visibles === 0)
+            ? "Este tipo aún no tiene estados. Agrégalos en Franquicias y tipos."
+            : "";
+    }
+    tipo.addEventListener("input", filtrarEstados);
+    filtrarEstados();
 })();
 </script>
 {% endblock %}

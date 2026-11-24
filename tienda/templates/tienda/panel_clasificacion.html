@@ -36,11 +36,31 @@
         {% for error in form_tipo.non_field_errors %}<div class="text-danger small">{{ error }}</div>{% endfor %}
         {% for error in form_tipo.nombre.errors %}<div class="text-danger small">{{ error }}</div>{% endfor %}
 
+        <h6 class="mt-4">Estados de cada tipo</h6>
+        <form method="post" class="row g-2 mb-2">
+            {% csrf_token %}
+            <div class="col-5">{{ form_condicion.tipo }}</div>
+            <div class="col-5">{{ form_condicion.nombre }}</div>
+            <div class="col-2"><button type="submit" name="guardar_condicion" class="btn btn-dark w-100">+</button></div>
+        </form>
+        {% for error in form_condicion.non_field_errors %}<div class="text-danger small">{{ error }}</div>{% endfor %}
+        {% for error in form_condicion.tipo.errors %}<div class="text-danger small">{{ error }}</div>{% endfor %}
+        {% for error in form_condicion.nombre.errors %}<div class="text-danger small">{{ error }}</div>{% endfor %}
+
         <ul class="list-group mt-3">
             {% for t in tipos %}
-            <li class="list-group-item d-flex justify-content-between">
-                <span>{{ t.nombre }}</span>
-                <span class="badge bg-secondary">{{ t.total }} producto(s)</span>
+            <li class="list-group-item">
+                <div class="d-flex justify-content-between">
+                    <span class="fw-bold">{{ t.nombre }}</span>
+                    <span class="badge bg-secondary">{{ t.total }} producto(s)</span>
+                </div>
+                <div class="mt-1">
+                    {% for c in t.condiciones.all %}
+                        <span class="badge text-bg-light border">{{ c.nombre }}</span>
+                    {% empty %}
+                        <span class="text-muted small">Sin estados definidos.</span>
+                    {% endfor %}
+                </div>
             </li>
             {% empty %}
             <li class="list-group-item">Aún no hay tipos.</li>

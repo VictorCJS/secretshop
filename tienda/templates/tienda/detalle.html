@@ -1,19 +1,66 @@
+
 {% extends "tienda/base.html" %}
 
 {% block titulo %}{{ producto.nombre }}{% endblock %}
 
 {% block contenido %}
 <a href="{% url 'lista_productos' %}" class="btn btn-outline-secondary mb-3">← Volver</a>
-<div class="row">
-    <div class="col-md-5">
-        {% if producto.imagen %}
-            <img src="{{ producto.imagen.url }}" class="img-fluid" alt="{{ producto.nombre }}">
+
+<div class="row g-4">
+    <div class="col-md-6">
+        {% if fotos %}
+        <div id="galeria" class="carousel slide" data-bs-ride="false">
+            <div class="carousel-inner border rounded bg-light">
+                {% for foto in fotos %}
+                <div class="carousel-item {% if forloop.first %}active{% endif %}">
+                    <img src="{{ foto.url }}" class="d-block w-100"
+                         style="aspect-ratio: 1 / 1; object-fit: contain;"
+                         alt="{{ producto.nombre }}, foto {{ forloop.counter }}">
+                </div>
+                {% endfor %}
+            </div>
+            {% if fotos|length > 1 %}
+            <button class="carousel-control-prev" type="button" data-bs-target="#galeria" data-bs-slide="prev">
+                <span class="carousel-control-prev-icon" aria-hidden="true" style="filter: invert(1);"></span>
+                <span class="visually-hidden">Anterior</span>
+            </button>
+            <button class="carousel-control-next" type="button" data-bs-target="#galeria" data-bs-slide="next">
+                <span class="carousel-control-next-icon" aria-hidden="true" style="filter: invert(1);"></span>
+                <span class="visually-hidden">Siguiente</span>
+            </button>
+            {% endif %}
+        </div>
+
+        {% if fotos|length > 1 %}
+        <div class="d-flex flex-wrap gap-2 mt-2">
+            {% for foto in fotos %}
+            <button type="button" class="btn p-0 border" data-bs-target="#galeria"
+                    data-bs-slide-to="{{ forloop.counter0 }}" aria-label="Foto {{ forloop.counter }}">
+                <img src="{{ foto.url }}" alt="" style="width: 64px; height: 64px; object-fit: cover;">
+            </button>
+            {% endfor %}
+        </div>
+        {% endif %}
         {% endif %}
     </div>
-    <div class="col-md-7">
+
+    <div class="col-md-6">
         <h1>{{ producto.nombre }}</h1>
-        <p class="text-muted">{{ producto.tipo|default_if_none:"" }}{% if producto.franquicia %} · {{ producto.franquicia }}{% endif %}</p>
-        <p>{{ producto.descripcion }}</p>
+        <p class="text-muted mb-2">
+            {{ producto.tipo|default_if_none:"" }}{% if producto.franquicia %} · {{ producto.franquicia }}{% endif %}
+        </p>
+
+        <ul class="list-unstyled mb-3">
+            {% if producto.linea %}<li><strong>Línea:</strong> {{ producto.linea }}</li>{% endif %}
+            {% if producto.condicion %}
+            <li>
+                <strong>Estado:</strong> {{ producto.condicion.nombre }}
+                {% if producto.detalle_condicion %}({{ producto.detalle_condicion }}){% endif %}
+            </li>
+            {% endif %}
+        </ul>
+
+        <p>{{ producto.descripcion|linebreaksbr }}</p>
         <h3>${{ producto.precio }}</h3>
         <p>Disponibles: {{ producto.stock }}</p>
 

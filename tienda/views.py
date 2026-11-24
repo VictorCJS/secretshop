@@ -28,14 +28,18 @@ from datetime import date
 from django.db.models import Count, Sum
 from django.utils import timezone
 
-from .forms import BannerForm, CategoriaForm, FranquiciaForm, PedidoForm, ProductoForm, TipoForm
+from .forms import (
+    BannerForm, CategoriaForm, CondicionForm, FranquiciaForm,
+    PedidoForm, ProductoForm, TipoForm,
+)
 from .models import (
-    Banner, Categoria, Franquicia, Pedido, PedidoItem, Producto, TipoProducto,
+    Banner, Categoria, Franquicia, Linea, Pedido, PedidoItem, Producto, TipoProducto,
 )
 
 def lista_productos(request):
-    productos = Producto.objects.filter(activo=True).select_related("franquicia", "tipo")
-
+    productos = Producto.objects.filter(activo=True).select_related(
+        "franquicia", "tipo", "linea", "condicion"
+    )
     def a_numero(valor):
         return int(valor) if valor.isdigit() else None
 
@@ -94,9 +98,16 @@ def lista_productos(request):
     })
 
 def detalle_producto(request, pk):
-    producto = get_object_or_404(Producto, pk=pk, activo=True)
-    return render(request, "tienda/detalle.html", {"producto": producto})
-
+    producto = get_object_or_404(
+        Producto.objects.select_related("franquicia", "tipo", "linea", "condicion")
+        .prefetch_related("imagenes"),
+        pk=pk, activo=True,
+    )
+    fotos = []
+    if producto.imagen:
+        fotos.append(producto.imagen)
+    fotos.extend(extra.imagen for extra in producto.imagenes.all())
+    return render(request, "tienda/detalle.html", {"producto": producto, "fotos": fotos})
 
 def registro(request):
     if request.method == "POST":
@@ -500,6 +511,7 @@ def panel_producto_form(request, pk=None):
         "producto": producto,
         "franquicias": list(Franquicia.objects.values_list("nombre", flat=True)),
         "tipos": list(TipoProducto.objects.values_list("nombre", flat=True)),
+        "lineas": list(Linea.objects.values_list("nombre", flat=True)),
     })
 @solo_admin
 @require_POST
@@ -685,10 +697,12 @@ def panel_banner_borrar(request, pk):
     banner.delete()
     messages.success(request, "Banner eliminado.")
     return redirect("panel_banners")
+
 @solo_admin
 def panel_clasificacion(request):
     form_franquicia = FranquiciaForm(prefix="f")
     form_tipo = TipoForm(prefix="t")
+    form_condicion = CondicionForm(prefix="c")
 
     if request.method == "POST":
         if "guardar_franquicia" in request.POST:
@@ -703,13 +717,20 @@ def panel_clasificacion(request):
                 form_tipo.save()
                 messages.success(request, "Tipo de producto creado.")
                 return redirect("panel_clasificacion")
+        elif "guardar_condicion" in request.POST:
+            form_condicion = CondicionForm(request.POST, prefix="c")
+            if form_condicion.is_valid():
+                form_condicion.save()
+                messages.success(request, "Estado agregado.")
+                return redirect("panel_clasificacion")
 
     return render(request, "tienda/panel_clasificacion.html", {
         "seccion": "clasificacion",
         "form_franquicia": form_franquicia,
         "form_tipo": form_tipo,
+        "form_condicion": form_condicion,
         "franquicias": Franquicia.objects.annotate(total=Count("productos")),
-        "tipos": TipoProducto.objects.annotate(total=Count("productos")),
+        "tipos": TipoProducto.objects.annotate(total=Count("productos")).prefetch_related("condiciones"),
     })
 @solo_admin
 def panel_venta_fisica(request):
