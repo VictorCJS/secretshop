@@ -60,7 +60,14 @@ class Franquicia(models.Model):
 
 class TipoProducto(models.Model):
     nombre = models.CharField(max_length=100)
+    class Submenu(models.TextChoices):
+        FRANQUICIAS = "franquicias", "Franquicias"
+        LINEAS = "lineas", "Líneas y marcas"
+        AMBAS = "ambas", "Líneas y franquicias"
 
+    submenu = models.CharField(
+        max_length=20, choices=Submenu.choices, default=Submenu.FRANQUICIAS
+    )
     class Meta:
         verbose_name = "tipo de producto"
         verbose_name_plural = "tipos de producto"

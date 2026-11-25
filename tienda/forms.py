@@ -64,13 +64,13 @@ class SelectCondicion(forms.Select):
 
 class ProductoForm(forms.ModelForm):
     franquicia_texto = forms.CharField(
-        label="Franquicia",
+        label="Línea o marca",
         required=False,
         max_length=100,
         widget=forms.TextInput(attrs={
             "list": "lista-franquicias",
             "autocomplete": "off",
-            "placeholder": "Escribe para buscar (por ejemplo, One Piece)",
+            "placeholder": "Por ejemplo, Nendoroid, Pop Up Parade o Banpresto",
         }),
         help_text="Opcional. Si no existe, se crea al guardar.",
     )

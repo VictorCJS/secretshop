@@ -23,10 +23,11 @@ from django.db.models import Count
 from decimal import Decimal, InvalidOperation
 from django.core.exceptions import ValidationError
 from .models import registrar_venta_fisica
-from datetime import date
+from datetime import date, timedelta
 
 from django.db.models import Count, Sum
 from django.utils import timezone
+from django.core.paginator import Paginator
 
 from .forms import (
     BannerForm, CategoriaForm, CondicionForm, FranquiciaForm,
@@ -37,66 +38,131 @@ from .models import (
 )
 
 def lista_productos(request):
-    productos = Producto.objects.filter(activo=True).select_related(
+    activos = Producto.objects.filter(activo=True)
+    productos = activos.select_related(
         "franquicia", "tipo", "linea", "condicion"
-    )
+    ).order_by("-creado")
+
     def a_numero(valor):
         return int(valor) if valor.isdigit() else None
 
-    franquicia_actual = None
-    tipo_actual = None
-    id_franquicia = a_numero(request.GET.get("franquicia", ""))
-    id_tipo = a_numero(request.GET.get("tipo", ""))
-    if id_franquicia:
-        franquicia_actual = Franquicia.objects.filter(pk=id_franquicia).first()
-    if id_tipo:
-        tipo_actual = TipoProducto.objects.filter(pk=id_tipo).first()
+    def buscar(modelo, clave):
+        pk = a_numero(request.GET.get(clave, ""))
+        return modelo.objects.filter(pk=pk).first() if pk else None
+
+    tipo_actual = buscar(TipoProducto, "tipo")
+    franquicia_actual = buscar(Franquicia, "franquicia")
+    linea_actual = buscar(Linea, "linea")
     busqueda = request.GET.get("q", "").strip()
 
-    if franquicia_actual:
-        productos = productos.filter(franquicia=franquicia_actual)
     if tipo_actual:
         productos = productos.filter(tipo=tipo_actual)
+    if franquicia_actual:
+        productos = productos.filter(franquicia=franquicia_actual)
+    if linea_actual:
+        productos = productos.filter(linea=linea_actual)
     if busqueda:
         productos = productos.filter(nombre__icontains=busqueda)
 
-    def url(franquicia=franquicia_actual, tipo=tipo_actual):
-        """Dirección que conserva los filtros actuales y cambia el indicado."""
-        params = {}
-        if franquicia:
-            params["franquicia"] = franquicia.pk
-        if tipo:
-            params["tipo"] = tipo.pk
-        if busqueda:
-            params["q"] = busqueda
+    def url(**params):
+        params = {k: v for k, v in params.items() if v}
         return ("?" + urlencode(params)) if params else reverse("lista_productos")
 
-    tipos_menu = [
-        {"nombre": t.nombre, "url": url(tipo=t), "activo": t == tipo_actual}
-        for t in TipoProducto.objects.filter(productos__activo=True).distinct()
-    ]
-    franquicias_menu = [
-        {"nombre": f.nombre, "url": url(franquicia=f), "activo": f == franquicia_actual}
-        for f in Franquicia.objects.filter(productos__activo=True).distinct()
-    ]
+    # --- Menú lateral: un elemento por tipo, con su submenú ---
+    por_tipo = {
+        fila["tipo_id"]: fila["n"]
+        for fila in activos.values("tipo_id").annotate(n=Count("id")).order_by()
+    }
+    franquicias_por_tipo = {}
+    for fila in (
+        activos.exclude(franquicia=None)
+        .values("tipo_id", "franquicia_id", "franquicia__nombre")
+        .annotate(n=Count("id"))
+        .order_by("franquicia__nombre")
+    ):
+        franquicias_por_tipo.setdefault(fila["tipo_id"], []).append({
+            "nombre": fila["franquicia__nombre"],
+            "n": fila["n"],
+            "url": url(tipo=fila["tipo_id"], franquicia=fila["franquicia_id"]),
+        })
+    lineas_por_tipo = {}
+    for fila in (
+        activos.exclude(linea=None)
+        .values("tipo_id", "linea_id", "linea__nombre")
+        .annotate(n=Count("id"))
+        .order_by("linea__nombre")
+    ):
+        lineas_por_tipo.setdefault(fila["tipo_id"], []).append({
+            "nombre": fila["linea__nombre"],
+            "n": fila["n"],
+            "url": url(tipo=fila["tipo_id"], linea=fila["linea_id"]),
+        })
 
-    # Los banners solo se muestran en el catálogo completo, sin filtros ni búsqueda.
+    menu = []
+    for t in TipoProducto.objects.all():
+        if not por_tipo.get(t.pk):
+            continue
+        franquicias = (
+            franquicias_por_tipo.get(t.pk, [])
+            if t.submenu in ("franquicias", "ambas") else []
+        )
+        lineas = (
+            lineas_por_tipo.get(t.pk, [])
+            if t.submenu in ("lineas", "ambas") else []
+        )
+        menu.append({
+            "nombre": t.nombre,
+            "n": por_tipo[t.pk],
+            "url": url(tipo=t.pk),
+            "activo": tipo_actual is not None and t.pk == tipo_actual.pk,
+            "franquicias": franquicias,
+            "lineas": lineas,
+            "hay_submenu": bool(franquicias or lineas),
+        })
+
+    # --- Portada: banners y nuevos lanzamientos solo sin filtros ni búsqueda ---
+    es_inicio = not (tipo_actual or franquicia_actual or linea_actual or busqueda)
+    limite_nuevo = timezone.now() - timedelta(days=14)
     banners = []
-    if not franquicia_actual and not tipo_actual and not busqueda:
+    nuevos = []
+    if es_inicio:
         banners = Banner.objects.filter(activo=True)
+        nuevos = list(productos[:10])
+        for p in nuevos:
+            p.es_nuevo = p.creado >= limite_nuevo
+
+    # --- Título y páginas ---
+    if busqueda:
+        titulo_lista = f"Resultados para «{busqueda}»"
+    else:
+        partes = [str(x) for x in (tipo_actual, linea_actual, franquicia_actual) if x]
+        titulo_lista = " › ".join(partes) or "Todos los productos"
+
+    filtros = {
+        "tipo": tipo_actual.pk if tipo_actual else None,
+        "franquicia": franquicia_actual.pk if franquicia_actual else None,
+        "linea": linea_actual.pk if linea_actual else None,
+        "q": busqueda,
+    }
+    filtros = {k: v for k, v in filtros.items() if v}
+    prefijo = ("?" + urlencode(filtros) + "&") if filtros else "?"
+
+    pagina = Paginator(productos, 12).get_page(request.GET.get("pagina"))
+    productos_pagina = list(pagina)
+    for p in productos_pagina:
+        p.es_nuevo = p.creado >= limite_nuevo
 
     return render(request, "tienda/lista.html", {
-        "productos": productos,
+        "productos": productos_pagina,
+        "pagina": pagina,
+        "prefijo": prefijo,
+        "menu": menu,
+        "es_inicio": es_inicio,
         "banners": banners,
+        "nuevos": nuevos,
         "busqueda": busqueda,
-        "franquicia_actual": franquicia_actual,
-        "tipo_actual": tipo_actual,
-        "tipos_menu": tipos_menu,
-        "franquicias_menu": franquicias_menu,
-        "url_todos_tipos": url(tipo=None),
-        "url_todas_franquicias": url(franquicia=None),
+        "titulo_lista": titulo_lista,
     })
-
 def detalle_producto(request, pk):
     producto = get_object_or_404(
         Producto.objects.select_related("franquicia", "tipo", "linea", "condicion")
@@ -723,6 +789,15 @@ def panel_clasificacion(request):
                 form_condicion.save()
                 messages.success(request, "Estado agregado.")
                 return redirect("panel_clasificacion")
+        elif "guardar_submenu" in request.POST:
+            tipo_id = request.POST.get("tipo_id", "")
+            valor = request.POST.get("submenu", "")
+            tipo = TipoProducto.objects.filter(pk=int(tipo_id)).first() if tipo_id.isdigit() else None
+            if tipo and valor in TipoProducto.Submenu.values:
+                tipo.submenu = valor
+                tipo.save(update_fields=["submenu"])
+                messages.success(request, f"Menú de «{tipo.nombre}» actualizado.")
+            return redirect("panel_clasificacion")
 
     return render(request, "tienda/panel_clasificacion.html", {
         "seccion": "clasificacion",
@@ -731,6 +806,7 @@ def panel_clasificacion(request):
         "form_condicion": form_condicion,
         "franquicias": Franquicia.objects.annotate(total=Count("productos")),
         "tipos": TipoProducto.objects.annotate(total=Count("productos")).prefetch_related("condiciones"),
+        "submenus": TipoProducto.Submenu.choices,
     })
 @solo_admin
 def panel_venta_fisica(request):

@@ -3,118 +3,230 @@
 {% block titulo %}Catálogo{% endblock %}
 
 {% block contenido %}
-{% if banners %}
-<div id="carruselBanners" class="carousel slide mb-4" data-bs-ride="carousel">
-    {% if banners|length > 1 %}
-    <div class="carousel-indicators">
-        {% for banner in banners %}
-        <button type="button" data-bs-target="#carruselBanners" data-bs-slide-to="{{ forloop.counter0 }}"
-                {% if forloop.first %}class="active" aria-current="true"{% endif %}
-                aria-label="Banner {{ forloop.counter }}"></button>
-        {% endfor %}
-    </div>
-    {% endif %}
-    <div class="carousel-inner rounded overflow-hidden">
-        {% for banner in banners %}
-        <div class="carousel-item {% if forloop.first %}active{% endif %}" data-bs-interval="5000">
-            {% if banner.enlace %}<a href="{{ banner.enlace }}">{% endif %}
-            <img src="{{ banner.imagen.url }}" class="d-block w-100"
-                 style="height: 320px; object-fit: cover;"
-                 alt="{{ banner.titulo|default:'Banner' }}">
-            {% if banner.enlace %}</a>{% endif %}
-            {% if banner.titulo or banner.subtitulo %}
-            <div class="carousel-caption d-none d-md-block" style="background: rgba(0,0,0,.45); border-radius: .5rem;">
-                <h4>{{ banner.titulo }}</h4>
-                <p class="mb-0">{{ banner.subtitulo }}</p>
-            </div>
-            {% endif %}
-        </div>
-        {% endfor %}
-    </div>
-    {% if banners|length > 1 %}
-    <button class="carousel-control-prev" type="button" data-bs-target="#carruselBanners" data-bs-slide="prev">
-        <span class="carousel-control-prev-icon" aria-hidden="true"></span>
-        <span class="visually-hidden">Anterior</span>
-    </button>
-    <button class="carousel-control-next" type="button" data-bs-target="#carruselBanners" data-bs-slide="next">
-        <span class="carousel-control-next-icon" aria-hidden="true"></span>
-        <span class="visually-hidden">Siguiente</span>
-    </button>
-    {% endif %}
-</div>
-{% endif %}
-
-<h1 class="mb-3">
-    {% if franquicia_actual and tipo_actual %}{{ franquicia_actual }} · {{ tipo_actual }}
-    {% elif franquicia_actual %}{{ franquicia_actual }}
-    {% elif tipo_actual %}{{ tipo_actual }}
-    {% else %}Catálogo{% endif %}
-</h1>
-
-<form method="get" class="row g-2 mb-3">
-    {% if franquicia_actual %}<input type="hidden" name="franquicia" value="{{ franquicia_actual.pk }}">{% endif %}
-    {% if tipo_actual %}<input type="hidden" name="tipo" value="{{ tipo_actual.pk }}">{% endif %}
-    <div class="col-sm-8">
-        <input type="text" name="q" value="{{ busqueda }}" class="form-control" placeholder="Buscar producto...">
-    </div>
-    <div class="col-sm-4">
-        <button type="submit" class="btn btn-dark w-100">Buscar</button>
-    </div>
-</form>
-
-<div class="d-flex flex-wrap gap-2 align-items-center mb-2">
-    <span class="text-muted small me-1">Tipo</span>
-    <a class="btn btn-sm {% if not tipo_actual %}btn-primary{% else %}btn-outline-primary{% endif %}" href="{{ url_todos_tipos }}">Todos</a>
-    {% for t in tipos_menu %}
-    <a class="btn btn-sm {% if t.activo %}btn-primary{% else %}btn-outline-primary{% endif %}" href="{{ t.url }}">{{ t.nombre }}</a>
-    {% endfor %}
-</div>
-<div class="d-flex flex-wrap gap-2 align-items-center mb-4">
-    <span class="text-muted small me-1">Franquicia</span>
-    <a class="btn btn-sm {% if not franquicia_actual %}btn-primary{% else %}btn-outline-primary{% endif %}" href="{{ url_todas_franquicias }}">Todas</a>
-    {% for f in franquicias_menu %}
-    <a class="btn btn-sm {% if f.activo %}btn-primary{% else %}btn-outline-primary{% endif %}" href="{{ f.url }}">{{ f.nombre }}</a>
-    {% endfor %}
-</div>
-
 <style>
+    .menu-categorias { background: #fff; border: 1px solid #dee2e6; border-radius: .5rem; }
+    .menu-categorias .titulo { font-weight: 600; padding: .6rem 1rem; border-bottom: 1px solid #dee2e6; }
+    .menu-categorias .item-menu { position: relative; border-bottom: 1px solid #f1f3f5; }
+    .menu-categorias .item-menu:last-child { border-bottom: 0; }
+    .menu-categorias .enlace {
+        display: flex; justify-content: space-between; align-items: center;
+        padding: .55rem 1rem; color: #212529; text-decoration: none;
+    }
+    .menu-categorias .item-menu:hover > .enlace,
+    .menu-categorias .enlace:focus { background: #f8f9fa; color: #0d6efd; }
+    .menu-categorias .enlace.activo { font-weight: 600; color: #0d6efd; }
+    .menu-categorias .flyout {
+        display: none; position: absolute; left: 100%; top: 0; z-index: 1050;
+        width: max-content; min-width: 260px; max-width: 520px;
+        background: #fff; border: 1px solid rgba(0,0,0,.15); border-radius: .5rem;
+        box-shadow: 0 .5rem 1rem rgba(0,0,0,.15); padding: .75rem 1rem;
+    }
+    .menu-categorias .flyout ul { columns: 2 150px; column-gap: 1.5rem; padding-left: 0; margin-bottom: .5rem; }
+    .menu-categorias .flyout li { break-inside: avoid; padding: .1rem 0; }
+    .menu-categorias .flyout a { text-decoration: none; }
+    .menu-categorias .flyout a:hover { text-decoration: underline; }
+    @media (min-width: 992px) {
+        .menu-categorias .item-menu:hover > .flyout,
+        .menu-categorias .item-menu:focus-within > .flyout,
+        .menu-categorias .item-menu.abierto > .flyout { display: block; }
+    }
+    @media (max-width: 991.98px) {
+        .menu-categorias .flyout {
+            display: block; position: static; width: auto; max-width: none;
+            border: 0; box-shadow: none; padding: 0 1rem .75rem 1.5rem;
+        }
+    }
     .img-producto {
         width: 100%;
         aspect-ratio: 1 / 1;     /* cuadrada; prueba 4 / 5 si prefieres más alta */
         object-fit: cover;       /* recorta; usa contain si se cortan las figuras */
         background: #f8f9fa;
     }
+    .tarjeta-nueva { width: 170px; flex: 0 0 auto; }
 </style>
 
-<div class="row row-cols-2 row-cols-md-3 row-cols-lg-4 g-3">
-    {% for producto in productos %}
-    <div class="col">
-        <div class="card h-100">
-            <a href="{% url 'detalle_producto' producto.pk %}" class="position-relative d-block">
-                {% if producto.imagen %}
-                    <img src="{{ producto.imagen.url }}" class="img-producto card-img-top" alt="{{ producto.nombre }}">
-                {% else %}
-                    <div class="img-producto card-img-top"></div>
-                {% endif %}
-                {% if producto.condicion %}
-                    <span class="badge text-bg-dark position-absolute top-0 start-0 m-2">{{ producto.condicion.nombre }}</span>
-                {% endif %}
-            </a>
-            <div class="card-body p-2">
-                <h6 class="card-title mb-1">{{ producto.nombre }}</h6>
-                <div class="small text-muted">
-                    {{ producto.tipo|default_if_none:"" }}{% if producto.franquicia %} · {{ producto.franquicia }}{% endif %}
+<div class="row g-4">
+    <aside class="col-lg-3 col-xl-2">
+        <button class="btn btn-dark w-100 d-lg-none mb-3" type="button"
+                data-bs-toggle="collapse" data-bs-target="#menuCategorias"
+                aria-expanded="false" aria-controls="menuCategorias">☰ Categorías</button>
+
+        <div class="collapse d-lg-block" id="menuCategorias">
+            <nav class="menu-categorias" aria-label="Categorías">
+                <div class="titulo">Categorías</div>
+                <div class="item-menu">
+                    <a class="enlace {% if es_inicio %}activo{% endif %}" href="{% url 'lista_productos' %}">Todo el catálogo</a>
                 </div>
-                {% if producto.linea %}<div class="small text-muted">{{ producto.linea }}</div>{% endif %}
-                <div class="fw-bold mt-1">${{ producto.precio }}</div>
-            </div>
-            <div class="card-footer bg-transparent border-0 pt-0 pb-2 px-2">
-                <a href="{% url 'detalle_producto' producto.pk %}" class="btn btn-primary btn-sm w-100">Ver</a>
-            </div>
+                {% for t in menu %}
+                <div class="item-menu">
+                    <a class="enlace {% if t.activo %}activo{% endif %}" href="{{ t.url }}">
+                        <span>{{ t.nombre }}</span>
+                        {% if t.hay_submenu %}<span aria-hidden="true">›</span>{% endif %}
+                    </a>
+                    {% if t.hay_submenu %}
+                    <div class="flyout">
+                        <a class="fw-bold d-block mb-2" href="{{ t.url }}">Ver todo {{ t.nombre }} ({{ t.n }})</a>
+                        {% if t.lineas %}
+                            <div class="small text-muted text-uppercase mb-1">Líneas y marcas</div>
+                            <ul class="list-unstyled">
+                                {% for l in t.lineas %}
+                                <li><a href="{{ l.url }}">{{ l.nombre }} <span class="text-muted">({{ l.n }})</span></a></li>
+                                {% endfor %}
+                            </ul>
+                        {% endif %}
+                        {% if t.franquicias %}
+                            <div class="small text-muted text-uppercase mb-1">Franquicias</div>
+                            <ul class="list-unstyled">
+                                {% for f in t.franquicias %}
+                                <li><a href="{{ f.url }}">{{ f.nombre }} <span class="text-muted">({{ f.n }})</span></a></li>
+                                {% endfor %}
+                            </ul>
+                        {% endif %}
+                    </div>
+                    {% endif %}
+                </div>
+                {% endfor %}
+            </nav>
         </div>
-    </div>
-    {% empty %}
-        <p>No hay productos con esa combinación.</p>
-    {% endfor %}
+    </aside>
+
+    <section class="col-lg-9 col-xl-10">
+        {% if banners %}
+        <div id="carruselBanners" class="carousel slide mb-4" data-bs-ride="carousel">
+            {% if banners|length > 1 %}
+            <div class="carousel-indicators">
+                {% for banner in banners %}
+                <button type="button" data-bs-target="#carruselBanners" data-bs-slide-to="{{ forloop.counter0 }}"
+                        {% if forloop.first %}class="active" aria-current="true"{% endif %}
+                        aria-label="Banner {{ forloop.counter }}"></button>
+                {% endfor %}
+            </div>
+            {% endif %}
+            <div class="carousel-inner rounded overflow-hidden">
+                {% for banner in banners %}
+                <div class="carousel-item {% if forloop.first %}active{% endif %}" data-bs-interval="5000">
+                    {% if banner.enlace %}<a href="{{ banner.enlace }}">{% endif %}
+                    <img src="{{ banner.imagen.url }}" class="d-block w-100"
+                         style="height: 300px; object-fit: cover;"
+                         alt="{{ banner.titulo|default:'Banner' }}">
+                    {% if banner.enlace %}</a>{% endif %}
+                    {% if banner.titulo or banner.subtitulo %}
+                    <div class="carousel-caption d-none d-md-block" style="background: rgba(0,0,0,.45); border-radius: .5rem;">
+                        <h4>{{ banner.titulo }}</h4>
+                        <p class="mb-0">{{ banner.subtitulo }}</p>
+                    </div>
+                    {% endif %}
+                </div>
+                {% endfor %}
+            </div>
+            {% if banners|length > 1 %}
+            <button class="carousel-control-prev" type="button" data-bs-target="#carruselBanners" data-bs-slide="prev">
+                <span class="carousel-control-prev-icon" aria-hidden="true"></span>
+                <span class="visually-hidden">Anterior</span>
+            </button>
+            <button class="carousel-control-next" type="button" data-bs-target="#carruselBanners" data-bs-slide="next">
+                <span class="carousel-control-next-icon" aria-hidden="true"></span>
+                <span class="visually-hidden">Siguiente</span>
+            </button>
+            {% endif %}
+        </div>
+        {% endif %}
+
+        {% if nuevos %}
+        <div class="d-flex justify-content-between align-items-end mb-2">
+            <h4 class="mb-0">Nuevos lanzamientos</h4>
+            <span class="text-muted small">Actualizado el {{ nuevos.0.creado|date:"d/m/Y" }}</span>
+        </div>
+        <div class="d-flex gap-3 overflow-auto pb-3 mb-4 border-bottom">
+            {% for producto in nuevos %}
+            <a href="{% url 'detalle_producto' producto.pk %}" class="tarjeta-nueva text-decoration-none text-dark">
+                <div class="position-relative">
+                    {% if producto.imagen %}
+                        <img src="{{ producto.imagen.url }}" class="img-producto rounded border" alt="{{ producto.nombre }}">
+                    {% else %}
+                        <div class="img-producto rounded border"></div>
+                    {% endif %}
+                    {% if producto.es_nuevo %}<span class="badge text-bg-danger position-absolute top-0 start-0 m-1">Nuevo</span>{% endif %}
+                    {% if producto.stock == 0 %}<span class="badge text-bg-dark position-absolute bottom-0 start-0 m-1">Agotado</span>{% endif %}
+                </div>
+                <div class="small mt-1 text-truncate" title="{{ producto.nombre }}">{{ producto.nombre }}</div>
+                <div class="small text-muted text-truncate">{{ producto.linea|default_if_none:"" }}</div>
+                <div class="fw-bold">${{ producto.precio }}</div>
+            </a>
+            {% endfor %}
+        </div>
+        {% endif %}
+
+        <h4 class="mb-3">{{ titulo_lista }} <span class="text-muted fs-6">({{ pagina.paginator.count }})</span></h4>
+
+        <div class="row row-cols-2 row-cols-md-3 row-cols-xl-4 g-3">
+            {% for producto in productos %}
+            <div class="col">
+                <div class="card h-100">
+                    <a href="{% url 'detalle_producto' producto.pk %}" class="position-relative d-block">
+                        {% if producto.imagen %}
+                            <img src="{{ producto.imagen.url }}" class="img-producto card-img-top" alt="{{ producto.nombre }}">
+                        {% else %}
+                            <div class="img-producto card-img-top"></div>
+                        {% endif %}
+                        {% if producto.condicion %}
+                            <span class="badge text-bg-dark position-absolute top-0 start-0 m-2">{{ producto.condicion.nombre }}</span>
+                        {% endif %}
+                        {% if producto.es_nuevo %}
+                            <span class="badge text-bg-danger position-absolute top-0 end-0 m-2">Nuevo</span>
+                        {% endif %}
+                    </a>
+                    <div class="card-body p-2">
+                        <h6 class="card-title mb-1">{{ producto.nombre }}</h6>
+                        <div class="small text-muted">
+                            {{ producto.tipo|default_if_none:"" }}{% if producto.franquicia %} · {{ producto.franquicia }}{% endif %}
+                        </div>
+                        {% if producto.linea %}<div class="small text-muted">{{ producto.linea }}</div>{% endif %}
+                        <div class="fw-bold mt-1">${{ producto.precio }}</div>
+                    </div>
+                    <div class="card-footer bg-transparent border-0 pt-0 pb-2 px-2">
+                        <a href="{% url 'detalle_producto' producto.pk %}" class="btn btn-primary btn-sm w-100">Ver</a>
+                    </div>
+                </div>
+            </div>
+            {% empty %}
+                <p>No hay productos con esa combinación.</p>
+            {% endfor %}
+        </div>
+
+        {% if pagina.paginator.num_pages > 1 %}
+        <nav class="mt-4" aria-label="Páginas">
+            <ul class="pagination justify-content-center">
+                {% if pagina.has_previous %}
+                <li class="page-item"><a class="page-link" href="{{ prefijo }}pagina={{ pagina.previous_page_number }}">Anterior</a></li>
+                {% endif %}
+                <li class="page-item disabled"><span class="page-link">Página {{ pagina.number }} de {{ pagina.paginator.num_pages }}</span></li>
+                {% if pagina.has_next %}
+                <li class="page-item"><a class="page-link" href="{{ prefijo }}pagina={{ pagina.next_page_number }}">Siguiente</a></li>
+                {% endif %}
+            </ul>
+        </nav>
+        {% endif %}
+    </section>
 </div>
+
+<script>
+(function () {
+    // En pantallas táctiles grandes no hay "pasar el cursor": el primer toque abre el submenú.
+    var tactil = window.matchMedia("(hover: none) and (min-width: 992px)");
+    document.querySelectorAll(".menu-categorias .item-menu").forEach(function (item) {
+        var enlace = item.querySelector(".enlace");
+        if (!item.querySelector(".flyout")) { return; }
+        enlace.addEventListener("click", function (e) {
+            if (!tactil.matches) { return; }
+            e.preventDefault();
+            var estabaAbierto = item.classList.contains("abierto");
+            document.querySelectorAll(".menu-categorias .item-menu.abierto").forEach(function (i) {
+                i.classList.remove("abierto");
+            });
+            if (!estabaAbierto) { item.classList.add("abierto"); }
+        });
+    });
+})();
+</script>
 {% endblock %}

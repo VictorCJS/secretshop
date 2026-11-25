@@ -18,6 +18,8 @@ class FranquiciaAdmin(admin.ModelAdmin):
 
 @admin.register(TipoProducto)
 class TipoProductoAdmin(admin.ModelAdmin):
+    list_display = ("nombre", "submenu")
+    list_editable = ("submenu",)
     search_fields = ("nombre",)
 
 

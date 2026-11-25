@@ -9,15 +9,20 @@
 <body>
 
 <nav class="navbar navbar-dark" style="background-color: #808080;">
-    <div class="container">
-        <a class="navbar-brand" href="{% url 'lista_productos' %}">
+    <div class="container d-flex flex-wrap align-items-center gap-3">
+        <a class="navbar-brand m-0" href="{% url 'lista_productos' %}">
             <img src="/media/logo/logo.png"
                  alt="Logo de Secret Store in the Hood"
-                 height="130"
-                 width="250">
+                 height="90"
+                 style="width: auto;">
         </a>
 
-        <div class="d-flex gap-2 align-items-center">
+        <form method="get" action="{% url 'lista_productos' %}" class="d-flex flex-grow-1" style="min-width: 220px; max-width: 720px;">
+            <input type="search" name="q" value="{{ busqueda|default:'' }}" class="form-control" placeholder="Buscar productos...">
+            <button type="submit" class="btn btn-warning ms-2">Buscar</button>
+        </form>
+
+        <div class="d-flex flex-wrap gap-2 align-items-center ms-auto">
             <a class="btn btn-sm btn-warning" href="{% url 'ver_carrito' %}">Carrito</a>
             {% if user.is_authenticated %}
                 {% if user.is_staff %}
