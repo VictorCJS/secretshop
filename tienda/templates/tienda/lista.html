@@ -2,6 +2,45 @@
 
 {% block titulo %}Catálogo{% endblock %}
 
+{% block menu_movil %}
+<div class="accordion accordion-flush" id="acordeon-cat">
+    <div class="accordion-item">
+        <a class="d-block px-3 py-3 text-decoration-none text-dark" href="{% url 'lista_productos' %}">Todo el catálogo</a>
+    </div>
+    {% for t in menu %}
+    {% if t.hay_submenu %}
+    <div class="accordion-item">
+        <h2 class="accordion-header">
+            <button class="accordion-button collapsed" type="button"
+                    data-bs-toggle="collapse" data-bs-target="#cat-m-{{ forloop.counter }}">{{ t.nombre }}</button>
+        </h2>
+        <div id="cat-m-{{ forloop.counter }}" class="accordion-collapse collapse" data-bs-parent="#acordeon-cat">
+            <div class="list-group list-group-flush">
+                <a class="list-group-item list-group-item-action fw-semibold" href="{{ t.url }}">Ver todo {{ t.nombre }} ({{ t.n }})</a>
+                {% if t.lineas %}
+                    <div class="list-group-item small text-muted text-uppercase">Líneas y marcas</div>
+                    {% for l in t.lineas %}
+                    <a class="list-group-item list-group-item-action ps-4" href="{{ l.url }}">{{ l.nombre }} <span class="text-muted">({{ l.n }})</span></a>
+                    {% endfor %}
+                {% endif %}
+                {% if t.franquicias %}
+                    <div class="list-group-item small text-muted text-uppercase">Franquicias</div>
+                    {% for f in t.franquicias %}
+                    <a class="list-group-item list-group-item-action ps-4" href="{{ f.url }}">{{ f.nombre }} <span class="text-muted">({{ f.n }})</span></a>
+                    {% endfor %}
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    {% else %}
+    <div class="accordion-item">
+        <a class="d-block px-3 py-3 text-decoration-none text-dark" href="{{ t.url }}">{{ t.nombre }}</a>
+    </div>
+    {% endif %}
+    {% endfor %}
+</div>
+{% endblock %}
+
 {% block contenido %}
 <style>
     .menu-categorias { background: #fff; border: 1px solid #dee2e6; border-radius: .5rem; }
@@ -25,17 +64,13 @@
     .menu-categorias .flyout li { break-inside: avoid; padding: .1rem 0; }
     .menu-categorias .flyout a { text-decoration: none; }
     .menu-categorias .flyout a:hover { text-decoration: underline; }
-    @media (min-width: 992px) {
-        .menu-categorias .item-menu:hover > .flyout,
-        .menu-categorias .item-menu:focus-within > .flyout,
-        .menu-categorias .item-menu.abierto > .flyout { display: block; }
-    }
-    @media (max-width: 991.98px) {
-        .menu-categorias .flyout {
-            display: block; position: static; width: auto; max-width: none;
-            border: 0; box-shadow: none; padding: 0 1rem .75rem 1.5rem;
-        }
-    }
+    .menu-categorias .item-menu:hover > .flyout,
+    .menu-categorias .item-menu:focus-within > .flyout,
+    .menu-categorias .item-menu.abierto > .flyout { display: block; }
+
+    .banner-img { height: 300px; object-fit: cover; }
+    @media (max-width: 575.98px) { .banner-img { height: 170px; } }
+
     .img-producto {
         width: 100%;
         aspect-ratio: 1 / 1;     /* cuadrada; prueba 4 / 5 si prefieres más alta */
@@ -43,51 +78,47 @@
         background: #f8f9fa;
     }
     .tarjeta-nueva { width: 170px; flex: 0 0 auto; }
+    @media (max-width: 575.98px) { .tarjeta-nueva { width: 140px; } }
 </style>
 
 <div class="row g-4">
-    <aside class="col-lg-3 col-xl-2">
-        <button class="btn btn-dark w-100 d-lg-none mb-3" type="button"
-                data-bs-toggle="collapse" data-bs-target="#menuCategorias"
-                aria-expanded="false" aria-controls="menuCategorias">☰ Categorías</button>
-
-        <div class="collapse d-lg-block" id="menuCategorias">
-            <nav class="menu-categorias" aria-label="Categorías">
-                <div class="titulo">Categorías</div>
-                <div class="item-menu">
-                    <a class="enlace {% if es_inicio %}activo{% endif %}" href="{% url 'lista_productos' %}">Todo el catálogo</a>
-                </div>
-                {% for t in menu %}
-                <div class="item-menu">
-                    <a class="enlace {% if t.activo %}activo{% endif %}" href="{{ t.url }}">
-                        <span>{{ t.nombre }}</span>
-                        {% if t.hay_submenu %}<span aria-hidden="true">›</span>{% endif %}
-                    </a>
-                    {% if t.hay_submenu %}
-                    <div class="flyout">
-                        <a class="fw-bold d-block mb-2" href="{{ t.url }}">Ver todo {{ t.nombre }} ({{ t.n }})</a>
-                        {% if t.lineas %}
-                            <div class="small text-muted text-uppercase mb-1">Líneas y marcas</div>
-                            <ul class="list-unstyled">
-                                {% for l in t.lineas %}
-                                <li><a href="{{ l.url }}">{{ l.nombre }} <span class="text-muted">({{ l.n }})</span></a></li>
-                                {% endfor %}
-                            </ul>
-                        {% endif %}
-                        {% if t.franquicias %}
-                            <div class="small text-muted text-uppercase mb-1">Franquicias</div>
-                            <ul class="list-unstyled">
-                                {% for f in t.franquicias %}
-                                <li><a href="{{ f.url }}">{{ f.nombre }} <span class="text-muted">({{ f.n }})</span></a></li>
-                                {% endfor %}
-                            </ul>
-                        {% endif %}
-                    </div>
+    <!-- Menú de categorías: solo computadora. En celular está en el botón ☰ del encabezado. -->
+    <aside class="col-lg-3 col-xl-2 d-none d-lg-block">
+        <nav class="menu-categorias" aria-label="Categorías">
+            <div class="titulo">Categorías</div>
+            <div class="item-menu">
+                <a class="enlace {% if es_inicio %}activo{% endif %}" href="{% url 'lista_productos' %}">Todo el catálogo</a>
+            </div>
+            {% for t in menu %}
+            <div class="item-menu">
+                <a class="enlace {% if t.activo %}activo{% endif %}" href="{{ t.url }}">
+                    <span>{{ t.nombre }}</span>
+                    {% if t.hay_submenu %}<span aria-hidden="true">›</span>{% endif %}
+                </a>
+                {% if t.hay_submenu %}
+                <div class="flyout">
+                    <a class="fw-bold d-block mb-2" href="{{ t.url }}">Ver todo {{ t.nombre }} ({{ t.n }})</a>
+                    {% if t.lineas %}
+                        <div class="small text-muted text-uppercase mb-1">Líneas y marcas</div>
+                        <ul class="list-unstyled">
+                            {% for l in t.lineas %}
+                            <li><a href="{{ l.url }}">{{ l.nombre }} <span class="text-muted">({{ l.n }})</span></a></li>
+                            {% endfor %}
+                        </ul>
+                    {% endif %}
+                    {% if t.franquicias %}
+                        <div class="small text-muted text-uppercase mb-1">Franquicias</div>
+                        <ul class="list-unstyled">
+                            {% for f in t.franquicias %}
+                            <li><a href="{{ f.url }}">{{ f.nombre }} <span class="text-muted">({{ f.n }})</span></a></li>
+                            {% endfor %}
+                        </ul>
                     {% endif %}
                 </div>
-                {% endfor %}
-            </nav>
-        </div>
+                {% endif %}
+            </div>
+            {% endfor %}
+        </nav>
     </aside>
 
     <section class="col-lg-9 col-xl-10">
@@ -106,8 +137,7 @@
                 {% for banner in banners %}
                 <div class="carousel-item {% if forloop.first %}active{% endif %}" data-bs-interval="5000">
                     {% if banner.enlace %}<a href="{{ banner.enlace }}">{% endif %}
-                    <img src="{{ banner.imagen.url }}" class="d-block w-100"
-                         style="height: 300px; object-fit: cover;"
+                    <img src="{{ banner.imagen.url }}" class="d-block w-100 banner-img"
                          alt="{{ banner.titulo|default:'Banner' }}">
                     {% if banner.enlace %}</a>{% endif %}
                     {% if banner.titulo or banner.subtitulo %}
