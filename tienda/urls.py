@@ -38,6 +38,8 @@ urlpatterns = [
     path("administrar/ventas/", views.panel_ventas, name="panel_ventas"),
     path("administrar/ventas/<int:pk>/ticket/", views.panel_venta_ticket, name="panel_venta_ticket"),
     path("administrar/ventas/<int:pk>/anular/", views.panel_venta_anular, name="panel_venta_anular"),
+    path("pedido/<int:pk>/transferencia/", views.reportar_transferencia, name="reportar_transferencia"),
+    path("administrar/pedidos/<int:pk>/transferencia/", views.panel_resolver_transferencia,name="panel_resolver_transferencia"),
 
 
 ]

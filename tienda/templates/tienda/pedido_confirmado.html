@@ -8,10 +8,22 @@
     <h4 class="alert-heading">¡Pago recibido, gracias por tu compra!</h4>
     <p class="mb-0">Tu pedido #{{ pedido.pk }} está pagado.</p>
 </div>
+{% elif pedido.estado == "por_verificar" %}
+<div class="alert alert-info">
+    <h4 class="alert-heading">Transferencia en revisión</h4>
+    <p>Recibimos tu aviso (clave de rastreo: <strong>{{ pedido.referencia_pago }}</strong>). Confirmaremos tu pago en cuanto veamos el depósito.</p>
+    <a href="{% url 'pagar_pedido' pedido.pk %}" class="btn btn-sm btn-outline-success">Prefiero pagar con Mercado Pago</a>
+</div>
 {% elif pedido.estado == "pendiente" %}
 <div class="alert alert-warning">
-    <h4 class="alert-heading">Pedido #{{ pedido.pk }} pendiente de pago</h4>
+    <h4 class="alert-heading">Pedido #{{ pedido.pk }}: elige cómo pagar</h4>
+    <p>Tu pedido queda apartado mientras completas el pago.</p>
     <a href="{% url 'pagar_pedido' pedido.pk %}" class="btn btn-success">Pagar con Mercado Pago</a>
+    {% if transferencia.clabe %}
+    <button type="button" class="btn btn-dark" data-bs-toggle="modal" data-bs-target="#modalTransferencia">
+        Pagar por transferencia
+    </button>
+    {% endif %}
 </div>
 {% else %}
 <div class="alert alert-secondary">
@@ -34,4 +46,39 @@
 
 <a href="{% url 'mis_pedidos' %}" class="btn btn-dark">Ver mis pedidos</a>
 <a href="{% url 'lista_productos' %}" class="btn btn-outline-secondary">Seguir comprando</a>
+
+{% if transferencia.clabe %}
+<div class="modal fade" id="modalTransferencia" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Pagar por transferencia</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+            </div>
+            <div class="modal-body">
+                <p>Haz una transferencia (SPEI) con estos datos:</p>
+                <ul class="list-group mb-3">
+                    <li class="list-group-item"><strong>Banco:</strong> {{ transferencia.banco }}</li>
+                    <li class="list-group-item"><strong>Beneficiario:</strong> {{ transferencia.beneficiario }}</li>
+                    <li class="list-group-item d-flex justify-content-between align-items-center">
+                        <span><strong>CLABE:</strong> {{ transferencia.clabe }}</span>
+                        <button type="button" class="btn btn-sm btn-outline-secondary"
+                                onclick="navigator.clipboard.writeText('{{ transferencia.clabe|escapejs }}')">Copiar</button>
+                    </li>
+                    <li class="list-group-item"><strong>Monto exacto:</strong> ${{ pedido.total }}</li>
+                    <li class="list-group-item"><strong>Concepto:</strong> Pedido {{ pedido.pk }}</li>
+                </ul>
+                <p class="small text-muted">Después de transferir, escribe aquí la <strong>clave de rastreo</strong> que te da tu banco para que podamos confirmar tu pago.</p>
+                <form method="post" action="{% url 'reportar_transferencia' pedido.pk %}">
+                    {% csrf_token %}
+                    <label for="referencia" class="form-label">Clave de rastreo</label>
+                    <input type="text" name="referencia" id="referencia" class="form-control mb-3"
+                           maxlength="100" required autocomplete="off">
+                    <button type="submit" class="btn btn-success w-100">Ya hice mi transferencia</button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
 {% endblock %}

@@ -31,6 +31,30 @@
             {% endfor %}
         </ul>
         <p class="fw-bold">Total: ${{ pedido.total }}</p>
+                {% if pedido.metodo_pago %}
+        <p class="mb-1">
+            Pago: <strong>{{ pedido.get_metodo_pago_display }}</strong>
+            {% if pedido.referencia_pago %}· Referencia: <code>{{ pedido.referencia_pago }}</code>{% endif %}
+        </p>
+        {% endif %}
+
+        {% if pedido.estado == "por_verificar" %}
+        <div class="alert alert-info py-2 d-flex flex-wrap gap-2 align-items-center">
+            <span>Revisa en tu banco un depósito de <strong>${{ pedido.total }}</strong> con esa referencia.</span>
+            <form method="post" action="{% url 'panel_resolver_transferencia' pedido.pk %}" class="d-inline">
+                {% csrf_token %}
+                <input type="hidden" name="accion" value="confirmar">
+                <button type="submit" class="btn btn-sm btn-success"
+                        onclick="return confirm('¿Ya viste el depósito completo en tu banco?');">Confirmar pago</button>
+            </form>
+            <form method="post" action="{% url 'panel_resolver_transferencia' pedido.pk %}" class="d-inline">
+                {% csrf_token %}
+                <input type="hidden" name="accion" value="rechazar">
+                <button type="submit" class="btn btn-sm btn-outline-danger"
+                        onclick="return confirm('¿El depósito no llegó? El pedido volverá a pendiente.');">No llegó</button>
+            </form>
+        </div>
+        {% endif %}
 
         {% if pedido.estado != "cancelado" %}
         <form method="post" action="{% url 'panel_cambiar_estado' pedido.pk %}" class="row g-2">

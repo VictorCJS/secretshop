@@ -277,7 +277,7 @@ def checkout(request):
                     producto.save(update_fields=["stock"])
 
             request.session["carrito"] = {}
-            return redirect("pagar_pedido", pk=pedido.pk)
+            return redirect("pedido_confirmado", pk=pedido.pk)
     else:
         form = PedidoForm(initial={"nombre": request.user.get_full_name()})
 
@@ -291,7 +291,15 @@ def checkout(request):
 @login_required
 def pedido_confirmado(request, pk):
     pedido = get_object_or_404(Pedido, pk=pk, usuario=request.user)
-    return render(request, "tienda/pedido_confirmado.html", {"pedido": pedido})
+    transferencia = {
+        "banco": settings.TRANSFER_BANCO,
+        "beneficiario": settings.TRANSFER_BENEFICIARIO,
+        "clabe": settings.TRANSFER_CLABE,
+    }
+    return render(request, "tienda/pedido_confirmado.html", {
+        "pedido": pedido,
+        "transferencia": transferencia,
+    })
 
 
 @login_required
@@ -494,6 +502,7 @@ def panel_inicio(request):
         "en_camino": conteos.get("enviado", 0) + conteos.get("en_transito", 0),
         "pendientes": conteos.get("pendiente", 0),
         "bajo_stock": Producto.objects.filter(activo=True, stock__lte=2).count(),
+        "por_verificar": conteos.get("por_verificar", 0),
     })
 
 
@@ -995,3 +1004,60 @@ def panel_venta_anular(request, pk):
         )
     fecha = timezone.localtime(venta.creado).date().isoformat()
     return redirect(f"{reverse('panel_ventas')}?fecha={fecha}")
+@login_required
+@require_POST
+def reportar_transferencia(request, pk):
+    pedido = get_object_or_404(
+        Pedido, pk=pk, usuario=request.user, canal=Pedido.Canal.ONLINE
+    )
+    if pedido.estado != Pedido.Estado.PENDIENTE:
+        return redirect("pedido_confirmado", pk=pedido.pk)
+
+    referencia = " ".join(request.POST.get("referencia", "").split())[:100]
+    if not referencia:
+        messages.error(request, "Escribe la clave de rastreo de tu transferencia.")
+        return redirect("pedido_confirmado", pk=pedido.pk)
+
+    # Una misma transferencia no puede usarse para varios pedidos.
+    if Pedido.objects.filter(referencia_pago__iexact=referencia).exclude(pk=pedido.pk).exists():
+        messages.error(
+            request,
+            "Esa clave de rastreo ya está registrada en otro pedido. "
+            "Si crees que es un error, contáctanos.",
+        )
+        return redirect("pedido_confirmado", pk=pedido.pk)
+
+    pedido.metodo_pago = "transferencia"
+    pedido.referencia_pago = referencia
+    pedido.estado = Pedido.Estado.POR_VERIFICAR
+    pedido.save(update_fields=["metodo_pago", "referencia_pago", "estado"])
+    messages.success(
+        request,
+        "Recibimos tu aviso. Revisaremos tu transferencia y te confirmaremos el pago.",
+    )
+    return redirect("pedido_confirmado", pk=pedido.pk)
+
+
+@solo_admin
+@require_POST
+def panel_resolver_transferencia(request, pk):
+    pedido = Pedido.objects.filter(
+        pk=pk, canal=Pedido.Canal.ONLINE, estado=Pedido.Estado.POR_VERIFICAR
+    ).first()
+    if pedido is None:
+        messages.warning(request, "Ese pedido ya no está por verificar.")
+    elif request.POST.get("accion") == "confirmar":
+        pedido.estado = Pedido.Estado.PAGADO
+        pedido.metodo_pago = "transferencia"
+        pedido.save(update_fields=["estado", "metodo_pago"])
+        # Si ya conectaste los correos, agrega aquí: correo_pago_confirmado(pedido)
+        messages.success(request, f"Pago del pedido #{pedido.pk} confirmado.")
+    elif request.POST.get("accion") == "rechazar":
+        pedido.estado = Pedido.Estado.PENDIENTE
+        pedido.referencia_pago = ""
+        pedido.save(update_fields=["estado", "referencia_pago"])
+        messages.warning(
+            request,
+            f"El pedido #{pedido.pk} volvió a pendiente: el cliente puede pagar de nuevo.",
+        )
+    return redirect(f"{reverse('panel_pedidos')}?estado=por_verificar")

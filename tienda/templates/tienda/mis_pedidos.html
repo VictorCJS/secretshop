@@ -36,8 +36,10 @@
 
     <div class="card-footer d-flex flex-wrap gap-2 justify-content-between align-items-center">
         <div class="d-flex flex-wrap gap-2 align-items-center">
-            {% if pedido.estado == "pendiente" %}
-                <a href="{% url 'pagar_pedido' pedido.pk %}" class="btn btn-sm btn-success">Pagar con Mercado Pago</a>
+                        {% if pedido.estado == "pendiente" %}
+                <a href="{% url 'pedido_confirmado' pedido.pk %}" class="btn btn-sm btn-success">Pagar</a>
+            {% elif pedido.estado == "por_verificar" %}
+                <span class="badge bg-info text-dark">Transferencia en revisión</span>
             {% endif %}
 
             {% if pedido.puede_editar_envio %}

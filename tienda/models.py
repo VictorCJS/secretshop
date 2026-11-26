@@ -205,6 +205,7 @@ class Pedido(models.Model):
         EN_TRANSITO = "en_transito", "En tránsito"
         ENTREGADO = "entregado", "Entregado"
         CANCELADO = "cancelado", "Cancelado"
+        POR_VERIFICAR = "por_verificar", "Transferencia por verificar"
 
     usuario = models.ForeignKey(
         settings.AUTH_USER_MODEL, null=True, blank=True,
@@ -252,7 +253,9 @@ class Pedido(models.Model):
 
     @property
     def puede_editar_envio(self):
-        return self.estado in (self.Estado.PENDIENTE, self.Estado.PAGADO)
+        return self.estado in (
+            self.Estado.PENDIENTE, self.Estado.POR_VERIFICAR, self.Estado.PAGADO
+        )
 
     @property
     def puede_solicitar_cancelacion(self):

@@ -28,6 +28,14 @@
             </div></div>
         </a>
     </div>
+        <div class="col-6 col-md-3">
+        <a class="text-decoration-none" href="{% url 'panel_pedidos' %}?estado=por_verificar">
+            <div class="card text-center h-100"><div class="card-body">
+                <div class="display-6">{{ por_verificar }}</div>
+                <div>Transferencias por verificar</div>
+            </div></div>
+        </a>
+    </div>
     <div class="col-6 col-md-3">
         <a class="text-decoration-none" href="{% url 'panel_productos' %}">
             <div class="card text-center h-100"><div class="card-body">

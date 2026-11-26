@@ -197,6 +197,9 @@ MERCADOPAGO_ACCESS_TOKEN = os.environ.get("MERCADOPAGO_ACCESS_TOKEN", "")
 SITE_URL = os.environ.get("SITE_URL", "http://127.0.0.1:8000")
 MP_PAYER_EMAIL = os.environ.get("MP_PAYER_EMAIL", "test_user_7741231238480677117@testuser.com")
 MP_WEBHOOK_SECRET = os.environ.get("MP_WEBHOOK_SECRET", "")
+TRANSFER_BANCO = os.environ.get("TRANSFER_BANCO", "")
+TRANSFER_BENEFICIARIO = os.environ.get("TRANSFER_BENEFICIARIO", "")
+TRANSFER_CLABE = os.environ.get("TRANSFER_CLABE", "")
 
 
 # Seguridad en producción (solo cuando DEBUG es False)
