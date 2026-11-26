@@ -3,6 +3,31 @@ from django.core.exceptions import ValidationError
 from django.db import models, transaction
 from django.db.models import F
 from decimal import Decimal
+import unicodedata  # (va con los imports de arriba)
+
+
+def clave_normalizada(texto):
+    """Para comparar nombres sin importar mayúsculas, acentos ni espacios extra."""
+    texto = unicodedata.normalize("NFD", " ".join((texto or "").split()).lower())
+    return "".join(c for c in texto if unicodedata.category(c) != "Mn")
+
+
+NOMBRES_ENTIDADES = [
+    "Aguascalientes", "Baja California", "Baja California Sur", "Campeche",
+    "Chiapas", "Chihuahua", "Ciudad de México", "Coahuila", "Colima", "Durango",
+    "Estado de México", "Guanajuato", "Guerrero", "Hidalgo", "Jalisco", "Michoacán",
+    "Morelos", "Nayarit", "Nuevo León", "Oaxaca", "Puebla", "Querétaro",
+    "Quintana Roo", "San Luis Potosí", "Sinaloa", "Sonora", "Tabasco", "Tamaulipas",
+    "Tlaxcala", "Veracruz", "Yucatán", "Zacatecas",
+]
+ENTIDADES = [(n, n) for n in NOMBRES_ENTIDADES]
+
+
+def armar_direccion(calle, colonia, codigo_postal, ciudad, entidad, referencia=""):
+    lineas = [calle, f"Col. {colonia}, CP {codigo_postal}", f"{ciudad}, {entidad}"]
+    if referencia:
+        lineas.append(f"Ref.: {referencia}")
+    return "\n".join(lineas)
 def validar_enlace(valor):
     """Solo se permiten direcciones del propio sitio (/...) o http(s)://..."""
     if not valor:
@@ -51,11 +76,9 @@ class Franquicia(models.Model):
 
     def clean(self):
         self.nombre = " ".join(self.nombre.split())
-        repetida = Franquicia.objects.filter(nombre__iexact=self.nombre)
-        if self.pk:
-            repetida = repetida.exclude(pk=self.pk)
-        if repetida.exists():
-            raise ValidationError("Ya existe una franquicia con ese nombre.")
+        for otra in Franquicia.objects.exclude(pk=self.pk):
+            if clave_normalizada(otra.nombre) == clave_normalizada(self.nombre):
+                raise ValidationError(f"Ya existe una franquicia llamada «{otra.nombre}».")
 
 
 class TipoProducto(models.Model):
@@ -78,15 +101,29 @@ class TipoProducto(models.Model):
 
     def clean(self):
         self.nombre = " ".join(self.nombre.split())
-        repetida = TipoProducto.objects.filter(nombre__iexact=self.nombre)
-        if self.pk:
-            repetida = repetida.exclude(pk=self.pk)
-        if repetida.exists():
-            raise ValidationError("Ya existe un tipo de producto con ese nombre.")
+        for otra in TipoProducto.objects.exclude(pk=self.pk):
+            if clave_normalizada(otra.nombre) == clave_normalizada(self.nombre):
+                raise ValidationError(f"Ya existe un tipo llamado «{otra.nombre}».")
 
 class Linea(models.Model):
-    """Línea o formato del producto: Nendoroid, Pop Up Parade, Booster Box…"""
+    """Línea o formato del producto: Nendoroid, Pop Up Parade, 30 Aniversario…"""
     nombre = models.CharField(max_length=100)
+    tipo = models.ForeignKey(
+        "TipoProducto",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="lineas",
+        help_text="Tipo de producto al que pertenece esta línea (Figuras, TCG…).",
+    )
+    franquicia = models.ForeignKey(
+        "Franquicia",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="lineas",
+        help_text="Déjalo vacío si la línea abarca varias franquicias (ej. Nendoroid).",
+    )
 
     class Meta:
         verbose_name = "línea"
@@ -98,12 +135,10 @@ class Linea(models.Model):
 
     def clean(self):
         self.nombre = " ".join(self.nombre.split())
-        repetida = Linea.objects.filter(nombre__iexact=self.nombre)
-        if self.pk:
-            repetida = repetida.exclude(pk=self.pk)
-        if repetida.exists():
-            raise ValidationError("Ya existe una línea con ese nombre.")
-
+        clave = clave_normalizada(self.nombre)
+        for nombre in Linea.objects.exclude(pk=self.pk).values_list("nombre", flat=True):
+            if clave_normalizada(nombre) == clave:
+                raise ValidationError(f"Ya existe una línea llamada «{nombre}».")
 
 class Condicion(models.Model):
     """Estado del producto, definido para cada tipo (Nuevo/Usado, Gradeado/Raw/Sellado/Dañado…)."""
@@ -127,11 +162,9 @@ class Condicion(models.Model):
         self.nombre = " ".join(self.nombre.split())
         if not self.tipo_id:
             return
-        repetida = Condicion.objects.filter(tipo_id=self.tipo_id, nombre__iexact=self.nombre)
-        if self.pk:
-            repetida = repetida.exclude(pk=self.pk)
-        if repetida.exists():
-            raise ValidationError("Ese tipo ya tiene un estado con ese nombre.")
+        for otra in Condicion.objects.filter(tipo_id=self.tipo_id).exclude(pk=self.pk):
+            if clave_normalizada(otra.nombre) == clave_normalizada(self.nombre):
+                raise ValidationError(f"«{self.tipo}» ya tiene un estado llamado «{otra.nombre}».")
 
 class Producto(models.Model):
     categoria = models.ForeignKey(
@@ -149,7 +182,21 @@ class Producto(models.Model):
     condicion = models.ForeignKey(
         Condicion, null=True, blank=True, on_delete=models.PROTECT, related_name="productos"
     )
-    detalle_condicion = models.CharField(max_length=120, blank=True)
+    detalle_condicion = models.CharField(
+        max_length=120, blank=True,
+        help_text="Para gradeadas: calificadora y nota (ej. PSA 10). Para usadas: estado (ej. ligero desgaste).",
+    )
+    class Presentacion(models.TextChoices):
+        CARTA = "carta", "Carta suelta"
+        BOOSTER = "booster", "Sobre"
+        CAJA = "caja", "Caja / Booster Box"
+        ETB = "etb", "Elite Trainer Box"
+        OTRO = "otro", "Otro sellado"
+
+    presentacion = models.CharField(
+        max_length=10, choices=Presentacion.choices, blank=True,
+        help_text="Solo para TCG.",
+    )
     nombre = models.CharField(max_length=200)
     descripcion = models.TextField(blank=True)
     precio = models.DecimalField(max_digits=10, decimal_places=2)
@@ -157,6 +204,7 @@ class Producto(models.Model):
     imagen = models.ImageField(upload_to="productos/", blank=True)
     activo = models.BooleanField(default=True)
     creado = models.DateTimeField(auto_now_add=True)
+
 
     def __str__(self):
         return self.nombre
@@ -206,13 +254,18 @@ class Pedido(models.Model):
         ENTREGADO = "entregado", "Entregado"
         CANCELADO = "cancelado", "Cancelado"
         POR_VERIFICAR = "por_verificar", "Transferencia por verificar"
-
     usuario = models.ForeignKey(
         settings.AUTH_USER_MODEL, null=True, blank=True,
         on_delete=models.PROTECT, related_name="pedidos",
     )
     nombre = models.CharField(max_length=200)
     direccion = models.TextField()
+    codigo_postal = models.CharField(max_length=5, blank=True)
+    entidad = models.CharField(max_length=60, choices=ENTIDADES, blank=True)
+    ciudad = models.CharField(max_length=100, blank=True)
+    colonia = models.CharField(max_length=120, blank=True)
+    calle = models.CharField(max_length=200, blank=True)
+    referencia = models.CharField(max_length=250, blank=True)
     email = models.EmailField(blank=True)
     telefono = models.CharField(max_length=30)
     total = models.DecimalField(max_digits=10, decimal_places=2)
@@ -231,7 +284,7 @@ class Pedido(models.Model):
         ordering = ["-creado"]
 
     def __str__(self):
-        return f"Pedido #{self.pk} - {self.usuario}"
+        return f"Pedido #{self.pk} - {self.usuario or self.nombre}"
 
     def cancelar(self):
         """Cancela el pedido y devuelve el stock. No hace nada si ya estaba cancelado."""
@@ -338,3 +391,40 @@ def registrar_venta_fisica(
         pedido.total = total
         pedido.save(update_fields=["total", "monto_recibido"])
     return pedido
+class Direccion(models.Model):
+    usuario = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="direcciones"
+    )
+    alias = models.CharField(max_length=60, blank=True)  # Casa, Trabajo…
+    nombre = models.CharField(max_length=200)
+    telefono = models.CharField(max_length=30)
+    codigo_postal = models.CharField(max_length=5)
+    entidad = models.CharField(max_length=60, choices=ENTIDADES)
+    ciudad = models.CharField(max_length=100)
+    colonia = models.CharField(max_length=120)
+    calle = models.CharField(max_length=200)
+    referencia = models.CharField(max_length=250, blank=True)
+    principal = models.BooleanField(default=False)
+    creado = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "dirección"
+        verbose_name_plural = "direcciones"
+        ordering = ["-principal", "-creado"]
+
+    def __str__(self):
+        etiqueta = self.alias or self.calle
+        return f"{etiqueta} · Col. {self.colonia}, CP {self.codigo_postal}"
+
+    @property
+    def texto(self):
+        return armar_direccion(
+            self.calle, self.colonia, self.codigo_postal,
+            self.ciudad, self.entidad, self.referencia,
+        )
+
+    def save(self, *args, **kwargs):
+        super().save(*args, **kwargs)
+        # Solo una dirección puede ser la principal.
+        if self.principal:
+            Direccion.objects.filter(usuario=self.usuario).exclude(pk=self.pk).update(principal=False)

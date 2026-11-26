@@ -1,10 +1,12 @@
+import re
+
 from django import forms
 from django.core.exceptions import ValidationError
 from django.db import transaction
 
 from .models import (
-    Banner, Categoria, Condicion, Franquicia, Linea, Pedido,
-    Producto, ProductoImagen, TipoProducto,
+    Banner, Categoria, Condicion, Direccion, Franquicia, Linea, Pedido,
+    Producto, ProductoImagen, TipoProducto, armar_direccion, clave_normalizada,
 )
 
 MAX_FOTOS_POR_VEZ = 8
@@ -12,25 +14,125 @@ MAX_FOTOS_ADICIONALES = 12
 MAX_MB = 5
 
 
-class PedidoForm(forms.ModelForm):
+def _estilizar(campos):
+    for campo in campos.values():
+        w = campo.widget
+        if isinstance(w, forms.CheckboxSelectMultiple):
+            continue
+        if isinstance(w, forms.CheckboxInput):
+            w.attrs["class"] = "form-check-input"
+        elif isinstance(w, forms.Select):
+            w.attrs["class"] = "form-select"
+        else:
+            w.attrs["class"] = "form-control"
+
+
+class DireccionMixin:
+    """Validaciones compartidas por el formulario de compra y el de direcciones."""
+
+    def clean_codigo_postal(self):
+        cp = (self.cleaned_data.get("codigo_postal") or "").strip()
+        if not re.fullmatch(r"\d{5}", cp):
+            raise ValidationError("El código postal debe tener 5 dígitos.")
+        return cp
+
+    def clean_telefono(self):
+        tel = (self.cleaned_data.get("telefono") or "").strip()
+        digitos = re.sub(r"\D", "", tel)
+        if not 10 <= len(digitos) <= 13:
+            raise ValidationError("Escribe un teléfono de 10 dígitos.")
+        return tel
+
+
+_ETIQUETAS_DIRECCION = {
+    "nombre": "Nombre de quien recibe",
+    "telefono": "Teléfono",
+    "codigo_postal": "Código postal",
+    "entidad": "Estado",
+    "ciudad": "Ciudad o municipio",
+    "colonia": "Colonia",
+    "calle": "Dirección (calle y número)",
+    "referencia": "Referencias (opcional)",
+}
+
+
+class PedidoForm(DireccionMixin, forms.ModelForm):
     class Meta:
         model = Pedido
-        fields = ["nombre", "email", "direccion", "telefono"]
-        widgets = {"direccion": forms.Textarea(attrs={"rows": 3})}
+        fields = [
+            "nombre", "email", "telefono", "codigo_postal", "entidad",
+            "ciudad", "colonia", "calle", "referencia",
+        ]
+        labels = {**_ETIQUETAS_DIRECCION, "email": "Correo electrónico"}
+        widgets = {
+            "telefono": forms.TextInput(attrs={"inputmode": "tel"}),
+            "codigo_postal": forms.TextInput(attrs={
+                "inputmode": "numeric", "maxlength": "5", "pattern": "[0-9]{5}",
+            }),
+            "referencia": forms.TextInput(attrs={
+                "placeholder": "Entre qué calles está, color de la casa, portón…",
+            }),
+        }
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.fields["email"].required = True
-        for campo in self.fields.values():
-            campo.widget.attrs["class"] = "form-control"
+        for nombre, campo in self.fields.items():
+            campo.required = nombre != "referencia"
+        _estilizar(self.fields)
+
+    def save(self, commit=True):
+        pedido = super().save(commit=False)
+        d = self.cleaned_data
+        # El texto completo se guarda aparte para que lo muestren las pantallas actuales.
+        pedido.direccion = armar_direccion(
+            d["calle"], d["colonia"], d["codigo_postal"],
+            d["ciudad"], d["entidad"], d.get("referencia", ""),
+        )
+        if commit:
+            pedido.save()
+        return pedido
+
+
+class DireccionForm(DireccionMixin, forms.ModelForm):
+    class Meta:
+        model = Direccion
+        fields = [
+            "alias", "nombre", "telefono", "codigo_postal", "entidad",
+            "ciudad", "colonia", "calle", "referencia", "principal",
+        ]
+        labels = {
+            **_ETIQUETAS_DIRECCION,
+            "alias": "Nombre de esta dirección (opcional)",
+            "principal": "Usar como mi dirección principal",
+        }
+        widgets = {
+            "alias": forms.TextInput(attrs={"placeholder": "Casa, trabajo…"}),
+            "telefono": forms.TextInput(attrs={"inputmode": "tel"}),
+            "codigo_postal": forms.TextInput(attrs={
+                "inputmode": "numeric", "maxlength": "5", "pattern": "[0-9]{5}",
+            }),
+            "referencia": forms.TextInput(attrs={
+                "placeholder": "Entre qué calles está, color de la casa, portón…",
+            }),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        for nombre, campo in self.fields.items():
+            campo.required = nombre not in ("alias", "referencia", "principal")
+        _estilizar(self.fields)
 
 
 def _obtener_o_crear(modelo, texto):
+    """Busca por nombre sin importar mayúsculas ni acentos; si no existe, lo crea."""
     texto = " ".join((texto or "").split())
     if not texto:
         return None
-    existente = modelo.objects.filter(nombre__iexact=texto).first()
-    return existente or modelo.objects.create(nombre=texto)
+    clave = clave_normalizada(texto)
+    for existente in modelo.objects.all():
+        if clave_normalizada(existente.nombre) == clave:
+            return existente
+    return modelo.objects.create(nombre=texto)
 
 
 # --- Subir varias fotos a la vez (patrón de la documentación de Django) ---
@@ -64,13 +166,13 @@ class SelectCondicion(forms.Select):
 
 class ProductoForm(forms.ModelForm):
     franquicia_texto = forms.CharField(
-        label="Línea o marca",
+        label="Franquicia",
         required=False,
         max_length=100,
         widget=forms.TextInput(attrs={
             "list": "lista-franquicias",
             "autocomplete": "off",
-            "placeholder": "Por ejemplo, Nendoroid, Pop Up Parade o Banpresto",
+            "placeholder": "Escribe para buscar (por ejemplo, One Piece)",
         }),
         help_text="Opcional. Si no existe, se crea al guardar.",
     )
@@ -85,13 +187,13 @@ class ProductoForm(forms.ModelForm):
         help_text="TCG, Figuras, Ropa… Si no existe, se crea al guardar.",
     )
     linea_texto = forms.CharField(
-        label="Línea o formato",
+        label="Línea o marca",
         required=False,
         max_length=100,
         widget=forms.TextInput(attrs={
             "list": "lista-lineas",
             "autocomplete": "off",
-            "placeholder": "Por ejemplo, Nendoroid o Pop Up Parade",
+            "placeholder": "Por ejemplo, Nendoroid, Pop Up Parade o Banpresto",
         }),
         help_text="Opcional. Si no existe, se crea al guardar.",
     )
@@ -118,7 +220,7 @@ class ProductoForm(forms.ModelForm):
     )
 
     field_order = [
-        "franquicia_texto", "tipo_texto", "linea_texto", "condicion",
+        "franquicia_texto", "tipo_texto", "linea_texto", "presentacion", "condicion",
         "detalle_condicion", "nombre", "descripcion", "precio", "stock",
         "imagen", "imagenes_extra", "activo",
     ]
@@ -127,11 +229,12 @@ class ProductoForm(forms.ModelForm):
         model = Producto
         fields = [
             "nombre", "descripcion", "precio", "stock",
-            "imagen", "detalle_condicion", "activo",
+            "imagen", "detalle_condicion", "presentacion", "activo",
         ]
         labels = {
             "imagen": "Foto principal",
             "detalle_condicion": "Detalle del estado",
+            "presentacion": "Presentación",
         }
         widgets = {
             "descripcion": forms.Textarea(attrs={"rows": 4}),
@@ -143,18 +246,8 @@ class ProductoForm(forms.ModelForm):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.fields["condicion"].label_from_instance = lambda obj: obj.nombre
+        _estilizar(self.fields)
 
-        for campo in self.fields.values():
-            if isinstance(campo.widget, forms.CheckboxSelectMultiple):
-                continue
-            if isinstance(campo.widget, forms.CheckboxInput):
-                campo.widget.attrs["class"] = "form-check-input"
-            elif isinstance(campo.widget, forms.Select):
-                campo.widget.attrs["class"] = "form-select"
-            else:
-                campo.widget.attrs["class"] = "form-control"
-
-        # Al editar, se rellenan los datos actuales.
         if self.instance and self.instance.pk:
             self.fields["eliminar_imagenes"].queryset = self.instance.imagenes.all()
             if self.instance.franquicia_id:
@@ -189,10 +282,30 @@ class ProductoForm(forms.ModelForm):
     def clean(self):
         datos = super().clean()
 
-        tipo_texto = " ".join((datos.get("tipo_texto") or "").split())
+        tipo_texto = datos.get("tipo_texto") or ""
         condicion = datos.get("condicion")
-        if condicion and condicion.tipo.nombre.lower() != tipo_texto.lower():
+        if condicion and clave_normalizada(condicion.tipo.nombre) != clave_normalizada(tipo_texto):
             self.add_error("condicion", "Ese estado no corresponde al tipo elegido.")
+
+        # Presentación solo para TCG
+        presentacion = datos.get("presentacion")
+        es_tcg = clave_normalizada(tipo_texto) == clave_normalizada("TCG")
+        if presentacion and not es_tcg:
+            self.add_error("presentacion", "La presentación solo aplica a productos TCG.")
+
+        if condicion:
+            cond = clave_normalizada(condicion.nombre)
+            detalle = (datos.get("detalle_condicion") or "").strip()
+
+            if cond == clave_normalizada("Gradeado") and not detalle:
+                self.add_error(
+                    "detalle_condicion",
+                    "Indica la calificadora y la nota (ej. PSA 10).",
+                )
+
+            es_sellado = presentacion and presentacion != Producto.Presentacion.CARTA
+            if es_sellado and cond != clave_normalizada("Nuevo"):
+                self.add_error("condicion", "Los productos sellados solo pueden ser nuevos.")
 
         nuevas = datos.get("imagenes_extra") or []
         quitar = datos.get("eliminar_imagenes") or []
@@ -212,6 +325,12 @@ class ProductoForm(forms.ModelForm):
             )
             producto.tipo = _obtener_o_crear(TipoProducto, self.cleaned_data.get("tipo_texto"))
             producto.linea = _obtener_o_crear(Linea, self.cleaned_data.get("linea_texto"))
+
+            # Una línea recién creada (o sin tipo) queda ligada al tipo del producto
+            if producto.linea and producto.linea.tipo_id is None and producto.tipo:
+                producto.linea.tipo = producto.tipo
+                producto.linea.save(update_fields=["tipo"])
+
             producto.condicion = self.cleaned_data.get("condicion")
             if commit:
                 producto.save()
@@ -221,8 +340,6 @@ class ProductoForm(forms.ModelForm):
                 for archivo in self.cleaned_data.get("imagenes_extra") or []:
                     ProductoImagen.objects.create(producto=producto, imagen=archivo)
         return producto
-
-
 class _EtiquetaForm(forms.ModelForm):
     placeholder = ""
 
@@ -247,6 +364,22 @@ class TipoForm(_EtiquetaForm):
 
     class Meta:
         model = TipoProducto
+        fields = ["nombre"]
+
+
+class LineaForm(_EtiquetaForm):
+    placeholder = "Línea o marca (por ejemplo, Nendoroid)"
+
+    class Meta:
+        model = Linea
+        fields = ["nombre"]
+
+
+class CondicionNombreForm(_EtiquetaForm):
+    placeholder = "Nombre del estado"
+
+    class Meta:
+        model = Condicion
         fields = ["nombre"]
 
 
@@ -288,11 +421,7 @@ class BannerForm(forms.ModelForm):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        for campo in self.fields.values():
-            if isinstance(campo.widget, forms.CheckboxInput):
-                campo.widget.attrs["class"] = "form-check-input"
-            else:
-                campo.widget.attrs["class"] = "form-control"
+        _estilizar(self.fields)
 
     def clean_imagen(self):
         imagen = self.cleaned_data.get("imagen")

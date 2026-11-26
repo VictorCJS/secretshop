@@ -1,0 +1,34 @@
+{% extends "tienda/base.html" %}
+
+{% block titulo %}{% if direccion %}Editar dirección{% else %}Nueva dirección{% endif %}{% endblock %}
+
+{% block contenido %}
+<h1 class="mb-4">{% if direccion %}Editar dirección{% else %}Nueva dirección{% endif %}</h1>
+
+<form method="post" class="col-lg-8 px-0">
+    {% csrf_token %}
+    {% for error in form.non_field_errors %}<div class="alert alert-danger">{{ error }}</div>{% endfor %}
+
+    <div class="row g-3">
+        {% for campo in form %}
+        <div class="{% if campo.name == 'nombre' or campo.name == 'calle' or campo.name == 'referencia' or campo.name == 'alias' or campo.name == 'principal' %}col-12{% elif campo.name == 'codigo_postal' %}col-md-4{% elif campo.name == 'entidad' %}col-md-8{% else %}col-md-6{% endif %}">
+            {% if campo.name == "principal" %}
+                <div class="form-check">
+                    {{ campo }}
+                    <label class="form-check-label" for="{{ campo.id_for_label }}">{{ campo.label }}</label>
+                </div>
+            {% else %}
+                <label class="form-label" for="{{ campo.id_for_label }}">{{ campo.label }}</label>
+                {{ campo }}
+            {% endif %}
+            {% for error in campo.errors %}<div class="text-danger small">{{ error }}</div>{% endfor %}
+        </div>
+        {% endfor %}
+    </div>
+
+    <div class="mt-4">
+        <button type="submit" class="btn btn-success">Guardar</button>
+        <a href="{% url 'mis_direcciones' %}" class="btn btn-outline-secondary">Cancelar</a>
+    </div>
+</form>
+{% endblock %}

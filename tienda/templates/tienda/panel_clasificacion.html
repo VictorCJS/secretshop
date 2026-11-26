@@ -16,12 +16,49 @@
 
         <ul class="list-group mt-3">
             {% for f in franquicias %}
-            <li class="list-group-item d-flex justify-content-between">
-                <span>{{ f.nombre }}</span>
-                <span class="badge bg-secondary">{{ f.total }} producto(s)</span>
+            <li class="list-group-item d-flex justify-content-between align-items-center gap-2">
+                <span>{{ f.nombre }} <span class="badge bg-secondary">{{ f.total }}</span></span>
+                <span class="d-flex gap-1">
+                    <a href="{% url 'panel_etiqueta_editar' 'franquicia' f.pk %}" class="btn btn-sm btn-outline-dark">Editar</a>
+                    {% if f.total == 0 %}
+                    <form method="post" action="{% url 'panel_etiqueta_borrar' 'franquicia' f.pk %}"
+                          onsubmit="return confirm('¿Eliminar «{{ f.nombre|escapejs }}»?');">
+                        {% csrf_token %}
+                        <button type="submit" class="btn btn-sm btn-outline-danger">Eliminar</button>
+                    </form>
+                    {% else %}
+                    <button type="button" class="btn btn-sm btn-outline-secondary" disabled
+                            title="La usan productos: cámbiales la franquicia primero">Eliminar</button>
+                    {% endif %}
+                </span>
             </li>
             {% empty %}
             <li class="list-group-item">Aún no hay franquicias.</li>
+            {% endfor %}
+        </ul>
+
+        <h5 class="mt-4">Líneas y marcas</h5>
+        <p class="text-muted small mb-2">Se crean al escribirlas en un producto. Aquí puedes corregirlas.</p>
+        <ul class="list-group">
+            {% for l in lineas %}
+            <li class="list-group-item d-flex justify-content-between align-items-center gap-2">
+                <span>{{ l.nombre }} <span class="badge bg-secondary">{{ l.total }}</span></span>
+                <span class="d-flex gap-1">
+                    <a href="{% url 'panel_etiqueta_editar' 'linea' l.pk %}" class="btn btn-sm btn-outline-dark">Editar</a>
+                    {% if l.total == 0 %}
+                    <form method="post" action="{% url 'panel_etiqueta_borrar' 'linea' l.pk %}"
+                          onsubmit="return confirm('¿Eliminar «{{ l.nombre|escapejs }}»?');">
+                        {% csrf_token %}
+                        <button type="submit" class="btn btn-sm btn-outline-danger">Eliminar</button>
+                    </form>
+                    {% else %}
+                    <button type="button" class="btn btn-sm btn-outline-secondary" disabled
+                            title="La usan productos: cámbiales la línea primero">Eliminar</button>
+                    {% endif %}
+                </span>
+            </li>
+            {% empty %}
+            <li class="list-group-item">Aún no hay líneas.</li>
             {% endfor %}
         </ul>
     </div>
@@ -36,7 +73,7 @@
         {% for error in form_tipo.non_field_errors %}<div class="text-danger small">{{ error }}</div>{% endfor %}
         {% for error in form_tipo.nombre.errors %}<div class="text-danger small">{{ error }}</div>{% endfor %}
 
-        <h6 class="mt-4">Estados de cada tipo</h6>
+        <h6 class="mt-4">Agregar un estado a un tipo</h6>
         <form method="post" class="row g-2 mb-2">
             {% csrf_token %}
             <div class="col-5">{{ form_condicion.tipo }}</div>
@@ -50,17 +87,43 @@
         <ul class="list-group mt-3">
             {% for t in tipos %}
             <li class="list-group-item">
-                <div class="d-flex justify-content-between">
-                    <span class="fw-bold">{{ t.nombre }}</span>
-                    <span class="badge bg-secondary">{{ t.total }} producto(s)</span>
+                <div class="d-flex justify-content-between align-items-center gap-2">
+                    <span class="fw-bold">{{ t.nombre }} <span class="badge bg-secondary">{{ t.total }}</span></span>
+                    <span class="d-flex gap-1">
+                        <a href="{% url 'panel_etiqueta_editar' 'tipo' t.pk %}" class="btn btn-sm btn-outline-dark">Editar</a>
+                        {% if t.total == 0 %}
+                        <form method="post" action="{% url 'panel_etiqueta_borrar' 'tipo' t.pk %}"
+                              onsubmit="return confirm('¿Eliminar el tipo «{{ t.nombre|escapejs }}» y sus estados?');">
+                            {% csrf_token %}
+                            <button type="submit" class="btn btn-sm btn-outline-danger">Eliminar</button>
+                        </form>
+                        {% else %}
+                        <button type="button" class="btn btn-sm btn-outline-secondary" disabled
+                                title="Lo usan productos: cámbiales el tipo primero">Eliminar</button>
+                        {% endif %}
+                    </span>
                 </div>
-                <div class="mt-1">
+
+                <div class="mt-2 d-flex flex-wrap gap-2">
                     {% for c in t.condiciones.all %}
-                        <span class="badge text-bg-light border">{{ c.nombre }}</span>
+                    <span class="border rounded px-2 py-1 d-inline-flex align-items-center gap-1 bg-light">
+                        {{ c.nombre }}
+                        <a href="{% url 'panel_etiqueta_editar' 'estado' c.pk %}" class="text-decoration-none" title="Editar">✎</a>
+                        {% if c.total == 0 %}
+                        <form method="post" action="{% url 'panel_etiqueta_borrar' 'estado' c.pk %}" class="d-inline"
+                              onsubmit="return confirm('¿Eliminar el estado «{{ c.nombre|escapejs }}»?');">
+                            {% csrf_token %}
+                            <button type="submit" class="btn btn-link p-0 text-danger text-decoration-none" title="Eliminar">×</button>
+                        </form>
+                        {% else %}
+                        <span class="text-muted" title="Lo usan {{ c.total }} producto(s)">({{ c.total }})</span>
+                        {% endif %}
+                    </span>
                     {% empty %}
-                        <span class="text-muted small">Sin estados definidos.</span>
+                    <span class="text-muted small">Sin estados definidos.</span>
                     {% endfor %}
                 </div>
+
                 <form method="post" class="d-flex align-items-center gap-2 mt-2">
                     {% csrf_token %}
                     <input type="hidden" name="tipo_id" value="{{ t.pk }}">
@@ -79,5 +142,4 @@
         </ul>
     </div>
 </div>
-<p class="text-muted small mt-3">Para renombrar o borrar uno, usa <strong>/admin</strong>. No se puede borrar si tiene productos.</p>
 {% endblock %}

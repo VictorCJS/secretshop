@@ -1,7 +1,7 @@
 from django.contrib import admin
 
 from .models import (
-    Banner, Categoria, Franquicia, Pedido, PedidoItem, Producto, TipoProducto,
+    Banner, Categoria, Franquicia, Pedido, PedidoItem, Producto, TipoProducto,Direccion
 )
 
 
@@ -90,3 +90,8 @@ class PedidoAdmin(admin.ModelAdmin):
     def cancelar_pedidos(self, request, queryset):
         n = sum(1 for pedido in queryset if pedido.cancelar())
         self.message_user(request, f"{n} pedido(s) cancelados y con stock devuelto.")
+
+    @admin.register(Direccion)
+    class DireccionAdmin(admin.ModelAdmin):
+        list_display = ("usuario", "alias", "colonia", "codigo_postal", "ciudad", "principal")
+        search_fields = ("usuario__username", "usuario__email", "codigo_postal")

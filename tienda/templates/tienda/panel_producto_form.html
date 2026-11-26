@@ -54,10 +54,13 @@
 {{ franquicias|json_script:"datos-franquicias" }}
 {{ tipos|json_script:"datos-tipos" }}
 {{ lineas|json_script:"datos-lineas" }}
+{{ lineas_info|json_script:"datos-lineas-info" }}
 
 <script>
 (function () {
-    function normalizar(t) { return t.trim().replace(/\s+/g, " ").toLowerCase(); }
+    function normalizar(t) {
+        return t.trim().replace(/\s+/g, " ").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+    }
 
     function vincular(idCampo, idDatos, etiqueta) {
         var campo = document.getElementById(idCampo);
@@ -101,6 +104,41 @@
     }
     tipo.addEventListener("input", filtrarEstados);
     filtrarEstados();
+
+    // Presentación solo para TCG
+    var presentacion = document.getElementById("id_presentacion");
+    var bloquePresentacion = presentacion.closest(".mb-3");
+
+    function mostrarPresentacion() {
+        var esTcg = normalizar(tipo.value) === "tcg";
+        bloquePresentacion.hidden = !esTcg;
+        if (!esTcg) { presentacion.value = ""; }
+    }
+    tipo.addEventListener("input", mostrarPresentacion);
+    mostrarPresentacion();
+
+    // Sugerencias de línea según tipo y franquicia
+    var franquicia = document.getElementById("id_franquicia_texto");
+    var listaLineas = document.getElementById("lista-lineas");
+    var infoLineas = JSON.parse(document.getElementById("datos-lineas-info").textContent);
+
+    function filtrarLineas() {
+        var t = normalizar(tipo.value);
+        var f = normalizar(franquicia.value);
+        listaLineas.innerHTML = "";
+        infoLineas.forEach(function (l) {
+            var lt = normalizar(l.tipo__nombre || "");
+            var lf = normalizar(l.franquicia__nombre || "");
+            if (t && lt && lt !== t) { return; }   // es de otro tipo
+            if (f && lf && lf !== f) { return; }   // es de otra franquicia
+            var op = document.createElement("option");
+            op.value = l.nombre;
+            listaLineas.appendChild(op);
+        });
+    }
+    tipo.addEventListener("input", filtrarLineas);
+    franquicia.addEventListener("input", filtrarLineas);
+    filtrarLineas();
 })();
 </script>
 {% endblock %}

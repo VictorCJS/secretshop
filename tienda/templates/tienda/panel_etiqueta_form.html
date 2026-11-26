@@ -1,0 +1,21 @@
+{% extends "tienda/panel_base.html" %}
+
+{% block titulo %}Editar {{ nombre_legible }}{% endblock %}
+
+{% block panel %}
+<h4 class="mb-3">Editar {{ nombre_legible }}: {{ objeto }}</h4>
+
+<form method="post" class="col-md-6 px-0">
+    {% csrf_token %}
+    {% for error in form.non_field_errors %}<div class="alert alert-danger">{{ error }}</div>{% endfor %}
+    <div class="mb-3">
+        {{ form.nombre }}
+        {% for error in form.nombre.errors %}<div class="text-danger small">{{ error }}</div>{% endfor %}
+    </div>
+    {% if usos %}
+    <p class="text-muted small">Lo usan {{ usos }} producto(s). Al cambiar el nombre se actualiza en todos.</p>
+    {% endif %}
+    <button type="submit" class="btn btn-success">Guardar</button>
+    <a href="{% url 'panel_clasificacion' %}" class="btn btn-outline-secondary">Cancelar</a>
+</form>
+{% endblock %}

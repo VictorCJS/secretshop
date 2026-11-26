@@ -3,17 +3,49 @@
 {% block titulo %}Productos{% endblock %}
 
 {% block panel %}
-<div class="d-flex justify-content-between mb-3">
-    <form method="get" class="d-flex gap-2">
-        <input type="text" name="q" value="{{ busqueda }}" class="form-control" placeholder="Buscar producto...">
+<div class="d-flex justify-content-between align-items-start mb-3 gap-2 flex-wrap">
+    <form method="get" id="filtros" class="d-flex gap-2 flex-wrap" autocomplete="off">
+        <input type="search" name="q" value="{{ busqueda }}" class="form-control"
+               placeholder="Buscar: dragon ball, pikachu…" style="min-width: 240px;">
+
+        <select name="tipo" class="form-select" style="width: auto;"
+                onchange="this.form.linea.value=''; this.form.submit()">
+            <option value="">Todos los tipos</option>
+            {% for t in tipos %}
+                <option value="{{ t.pk }}" {% if tipo_sel == t.pk %}selected{% endif %}>{{ t.nombre }}</option>
+            {% endfor %}
+        </select>
+
+        <input type="text" name="franquicia" value="{{ franquicia_sel }}" class="form-control"
+               list="lista-franquicias-filtro" placeholder="Franquicia (ej. Pokémon)"
+               style="width: 200px;"
+               onchange="this.form.linea.value=''; this.form.submit()">
+        <datalist id="lista-franquicias-filtro">
+            {% for nombre in franquicias %}<option value="{{ nombre }}"></option>{% endfor %}
+        </datalist>
+
+        <select name="linea" class="form-select" style="width: auto;" onchange="this.form.submit()">
+            <option value="">Todas las líneas</option>
+            {% for l in lineas %}
+                <option value="{{ l.pk }}" {% if linea_sel == l.pk %}selected{% endif %}>{{ l.nombre }}</option>
+            {% endfor %}
+        </select>
+
         <button class="btn btn-outline-dark" type="submit">Buscar</button>
+        {% if busqueda or tipo_sel or franquicia_sel or linea_sel %}
+            <a href="{% url 'panel_productos' %}" class="btn btn-link text-secondary">Limpiar</a>
+        {% endif %}
     </form>
     <a href="{% url 'panel_producto_nuevo' %}" class="btn btn-dark">+ Agregar producto</a>
 </div>
 
+{% if busqueda or tipo_sel or franquicia_sel or linea_sel %}
+    <p class="text-muted small mb-2">{{ productos|length }} resultado{{ productos|length|pluralize }}</p>
+{% endif %}
+
 <table class="table align-middle">
     <thead>
-        <tr><th></th><th>Nombre</th><th>Franquicia</th><th>Tipo</th><th>Precio</th><th>Stock</th><th>Estado</th><th></th></tr>
+        <tr><th></th><th>Nombre</th><th>Franquicia</th><th>Tipo</th><th>Línea</th><th>Precio</th><th>Stock</th><th>Estado</th><th></th></tr>
     </thead>
     <tbody>
         {% for producto in productos %}
@@ -22,6 +54,7 @@
             <td>{{ producto.nombre }}</td>
             <td>{{ producto.franquicia|default_if_none:"—" }}</td>
             <td>{{ producto.tipo|default_if_none:"—" }}</td>
+            <td>{{ producto.linea|default_if_none:"—" }}</td>
             <td>${{ producto.precio }}</td>
             <td>{{ producto.stock }}</td>
             <td>
@@ -39,7 +72,10 @@
             </td>
         </tr>
         {% empty %}
-        <tr><td colspan="8">Aún no hay productos.</td></tr>
+        <tr><td colspan="9">
+            {% if busqueda or tipo_sel or franquicia_sel or linea_sel %}No hay productos que coincidan con la búsqueda.
+            {% else %}Aún no hay productos.{% endif %}
+        </td></tr>
         {% endfor %}
     </tbody>
 </table>

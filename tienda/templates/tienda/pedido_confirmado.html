@@ -46,7 +46,22 @@
 
 <a href="{% url 'mis_pedidos' %}" class="btn btn-dark">Ver mis pedidos</a>
 <a href="{% url 'lista_productos' %}" class="btn btn-outline-secondary">Seguir comprando</a>
-
+{% if pedido.puede_editar_envio %}
+<a href="{% url 'editar_envio' pedido.pk %}" class="btn btn-outline-dark">Cambiar datos de envío</a>
+{% endif %}
+{% if pedido.puede_cancelar %}
+<form method="post" action="{% url 'cancelar_mi_pedido' pedido.pk %}" class="d-inline"
+      onsubmit="return confirm('¿Cancelar este pedido?');">
+    {% csrf_token %}
+    <button type="submit" class="btn btn-outline-danger">Cancelar pedido</button>
+</form>
+{% endif %}
+{% if not user.is_authenticated %}
+<p class="text-muted small mt-3">
+    Compraste sin cuenta: este pedido solo se puede consultar desde este navegador.
+    Guarda tu número de pedido (#{{ pedido.pk }}) por si necesitas escribirnos.
+</p>
+{% endif %}
 {% if transferencia.clabe %}
 <div class="modal fade" id="modalTransferencia" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog modal-dialog-centered">

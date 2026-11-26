@@ -40,6 +40,14 @@ urlpatterns = [
     path("administrar/ventas/<int:pk>/anular/", views.panel_venta_anular, name="panel_venta_anular"),
     path("pedido/<int:pk>/transferencia/", views.reportar_transferencia, name="reportar_transferencia"),
     path("administrar/pedidos/<int:pk>/transferencia/", views.panel_resolver_transferencia,name="panel_resolver_transferencia"),
-
+    path("cuenta/direcciones/", views.mis_direcciones, name="mis_direcciones"),
+    path("cuenta/direcciones/nueva/", views.direccion_form, name="direccion_nueva"),
+    path("cuenta/direcciones/<int:pk>/editar/", views.direccion_form, name="direccion_editar"),
+    path("cuenta/direcciones/<int:pk>/principal/", views.direccion_principal, name="direccion_principal"),
+    path("cuenta/direcciones/<int:pk>/borrar/", views.direccion_borrar, name="direccion_borrar"),
+    path("administrar/clasificacion/<str:clave>/<int:pk>/editar/", views.panel_etiqueta_editar,
+         name="panel_etiqueta_editar"),
+    path("administrar/clasificacion/<str:clave>/<int:pk>/borrar/", views.panel_etiqueta_borrar,
+         name="panel_etiqueta_borrar"),
 
 ]

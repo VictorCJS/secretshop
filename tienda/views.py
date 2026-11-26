@@ -19,24 +19,24 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
 from functools import wraps
 from django.core.exceptions import PermissionDenied
-from django.db.models import Count
 from decimal import Decimal, InvalidOperation
 from django.core.exceptions import ValidationError
 from .models import registrar_venta_fisica
 from datetime import date, timedelta
 
-from django.db.models import Count, Sum
+from django.http import Http404, HttpResponse
+from django.db.models import Count, Prefetch, ProtectedError, Q, Sum
 from django.utils import timezone
 from django.core.paginator import Paginator
 
 from .forms import (
-    BannerForm, CategoriaForm, CondicionForm, FranquiciaForm,
-    PedidoForm, ProductoForm, TipoForm,
+    BannerForm, CategoriaForm, CondicionForm, CondicionNombreForm, DireccionForm,
+    FranquiciaForm, LineaForm, PedidoForm, ProductoForm, TipoForm,
 )
 from .models import (
-    Banner, Categoria, Franquicia, Linea, Pedido, PedidoItem, Producto, TipoProducto,
+    Banner, Categoria, Condicion, Direccion, Franquicia, Linea, Pedido,
+    PedidoItem, Producto, TipoProducto,
 )
-
 def lista_productos(request):
     activos = Producto.objects.filter(activo=True)
     productos = activos.select_related(
@@ -201,7 +201,17 @@ def obtener_items_carrito(carrito):
             "subtotal": subtotal,
         })
     return items, total
+MAX_DIRECCIONES = 10
 
+
+def pedido_del_cliente(request, pk):
+    """Devuelve el pedido solo a su dueño, o al invitado que lo creó en este navegador."""
+    pedido = get_object_or_404(Pedido, pk=pk, canal=Pedido.Canal.ONLINE)
+    if request.user.is_authenticated and pedido.usuario_id == request.user.pk:
+        return pedido
+    if pedido.usuario_id is None and pk in request.session.get("pedidos_invitado", []):
+        return pedido
+    raise Http404
 
 @require_POST
 def agregar_al_carrito(request, pk):
@@ -228,15 +238,35 @@ def ver_carrito(request):
     return render(request, "tienda/carrito.html", {"items": items, "total": total})
 
 
-@login_required
+def _datos_iniciales(usuario, direcciones):
+    inicial = {"email": usuario.email, "nombre": usuario.get_full_name()}
+    principal = next((d for d in direcciones if d.principal), direcciones[0] if direcciones else None)
+    if principal:
+        inicial.update({
+            "nombre": principal.nombre,
+            "telefono": principal.telefono,
+            "codigo_postal": principal.codigo_postal,
+            "entidad": principal.entidad,
+            "ciudad": principal.ciudad,
+            "colonia": principal.colonia,
+            "calle": principal.calle,
+            "referencia": principal.referencia,
+        })
+    return inicial
+
+
 def checkout(request):
     carrito = request.session.get("carrito", {})
     items, total = obtener_items_carrito(carrito)
     if not items:
         return redirect("ver_carrito")
 
+    autenticado = request.user.is_authenticated
+    direcciones = list(request.user.direcciones.all()) if autenticado else []
+
     if request.method == "POST":
         form = PedidoForm(request.POST)
+        guardar = autenticado and request.POST.get("guardar_direccion") == "on"
         if form.is_valid():
             with transaction.atomic():
                 productos = Producto.objects.select_for_update().filter(
@@ -260,7 +290,7 @@ def checkout(request):
                     total_real += producto.precio * item["cantidad"]
 
                 pedido = form.save(commit=False)
-                pedido.usuario = request.user
+                pedido.usuario = request.user if autenticado else None
                 pedido.total = total_real
                 pedido.save()
 
@@ -276,17 +306,47 @@ def checkout(request):
                     producto.stock -= item["cantidad"]
                     producto.save(update_fields=["stock"])
 
+                if guardar and len(direcciones) < MAX_DIRECCIONES:
+                    Direccion.objects.get_or_create(
+                        usuario=request.user,
+                        codigo_postal=pedido.codigo_postal,
+                        calle=pedido.calle,
+                        colonia=pedido.colonia,
+                        defaults={
+                            "nombre": pedido.nombre,
+                            "telefono": pedido.telefono,
+                            "ciudad": pedido.ciudad,
+                            "entidad": pedido.entidad,
+                            "referencia": pedido.referencia,
+                            "principal": not direcciones,
+                        },
+                    )
+
             request.session["carrito"] = {}
+            if not autenticado:
+                # Sin cuenta, el navegador recuerda qué pedidos creó.
+                ids = request.session.get("pedidos_invitado", [])
+                request.session["pedidos_invitado"] = (ids + [pedido.pk])[-20:]
+            # Si ya conectaste los correos, deja aquí: correo_pedido_recibido(pedido)
             return redirect("pedido_confirmado", pk=pedido.pk)
     else:
-        form = PedidoForm(initial={"nombre": request.user.get_full_name()})
+        form = PedidoForm(initial=_datos_iniciales(request.user, direcciones) if autenticado else None)
 
     return render(request, "tienda/checkout.html", {
         "form": form,
         "items": items,
         "total": total,
+        "direcciones": direcciones,
+        "direcciones_json": [
+            {
+                "id": d.pk, "nombre": d.nombre, "telefono": d.telefono,
+                "codigo_postal": d.codigo_postal, "entidad": d.entidad,
+                "ciudad": d.ciudad, "colonia": d.colonia, "calle": d.calle,
+                "referencia": d.referencia,
+            }
+            for d in direcciones
+        ],
     })
-
 
 @login_required
 def pedido_confirmado(request, pk):
@@ -415,16 +475,13 @@ def pagar_pedido(request, pk):
     return redirect(orden["checkout_url"])
 
 
-@login_required
 def pago_retorno(request):
     # El regreso solo sirve para ubicar el pedido; el estado real se consulta a Mercado Pago.
     try:
-        pedido = Pedido.objects.get(
-            pk=int(request.GET.get("external_reference")), usuario=request.user
-        )
-    except (TypeError, ValueError, Pedido.DoesNotExist):
+        pedido = pedido_del_cliente(request, int(request.GET.get("external_reference")))
+    except (TypeError, ValueError, Http404):
         messages.warning(request, "No pudimos identificar tu pedido.")
-        return redirect("mis_pedidos")
+        return redirect("mis_pedidos" if request.user.is_authenticated else "lista_productos")
 
     if pedido.mp_order_id:
         sincronizar_pago(pedido.mp_order_id)
@@ -559,16 +616,62 @@ def panel_cambiar_estado(request, pk):
 
 @solo_admin
 def panel_productos(request):
-    productos = Producto.objects.select_related("franquicia", "tipo").order_by("-creado")
+    productos = (Producto.objects
+                 .select_related("franquicia", "tipo", "linea")
+                 .order_by("-creado"))
+
+    # Búsqueda libre: cada palabra debe aparecer en algún campo
     busqueda = request.GET.get("q", "").strip()
     if busqueda:
-        productos = productos.filter(nombre__icontains=busqueda)
+        for palabra in busqueda.split():
+            variantes = {palabra}
+            if len(palabra) > 3 and palabra.lower().endswith("s"):
+                variantes.add(palabra[:-1])
+            filtro = Q()
+            for v in variantes:
+                filtro |= (
+                    Q(nombre__icontains=v)
+                    | Q(franquicia__nombre__icontains=v)
+                    | Q(tipo__nombre__icontains=v)
+                    | Q(linea__nombre__icontains=v)
+                )
+            productos = productos.filter(filtro)
+
+    # Tipo (selector)
+    tipo = request.GET.get("tipo", "")
+    if tipo.isdigit():
+        productos = productos.filter(tipo_id=tipo)
+    else:
+        tipo = ""
+
+    # Franquicia (texto libre con sugerencias)
+    franquicia = request.GET.get("franquicia", "").strip()
+    if franquicia:
+        productos = productos.filter(franquicia__nombre__icontains=franquicia)
+
+    # Solo las líneas que tienen productos con los filtros de arriba
+    lineas = (Linea.objects
+              .filter(productos__in=productos)
+              .distinct()
+              .order_by("nombre"))
+
+    linea = request.GET.get("linea", "")
+    if linea.isdigit() and lineas.filter(pk=linea).exists():
+        productos = productos.filter(linea_id=linea)
+    else:
+        linea = ""
+
     return render(request, "tienda/panel_productos.html", {
         "seccion": "productos",
         "productos": productos,
         "busqueda": busqueda,
+        "tipos": TipoProducto.objects.order_by("nombre"),
+        "franquicias": Franquicia.objects.order_by("nombre").values_list("nombre", flat=True),
+        "lineas": lineas,
+        "tipo_sel": int(tipo) if tipo else None,
+        "franquicia_sel": franquicia,
+        "linea_sel": int(linea) if linea else None,
     })
-
 @solo_admin
 def panel_producto_form(request, pk=None):
     producto = get_object_or_404(Producto, pk=pk) if pk else None
@@ -587,6 +690,7 @@ def panel_producto_form(request, pk=None):
         "franquicias": list(Franquicia.objects.values_list("nombre", flat=True)),
         "tipos": list(TipoProducto.objects.values_list("nombre", flat=True)),
         "lineas": list(Linea.objects.values_list("nombre", flat=True)),
+        "lineas_info": list(Linea.objects.values("nombre", "tipo__nombre", "franquicia__nombre")),
     })
 @solo_admin
 @require_POST
@@ -1061,3 +1165,112 @@ def panel_resolver_transferencia(request, pk):
             f"El pedido #{pedido.pk} volvió a pendiente: el cliente puede pagar de nuevo.",
         )
     return redirect(f"{reverse('panel_pedidos')}?estado=por_verificar")
+@login_required
+def mis_direcciones(request):
+    return render(request, "tienda/mis_direcciones.html", {
+        "direcciones": request.user.direcciones.all(),
+        "maximo": MAX_DIRECCIONES,
+    })
+
+
+@login_required
+def direccion_form(request, pk=None):
+    direccion = get_object_or_404(Direccion, pk=pk, usuario=request.user) if pk else None
+    if direccion is None and request.user.direcciones.count() >= MAX_DIRECCIONES:
+        messages.error(request, f"Puedes guardar hasta {MAX_DIRECCIONES} direcciones.")
+        return redirect("mis_direcciones")
+
+    if request.method == "POST":
+        form = DireccionForm(request.POST, instance=direccion)
+        if form.is_valid():
+            nueva = form.save(commit=False)
+            nueva.usuario = request.user
+            if not request.user.direcciones.exclude(pk=nueva.pk).exists():
+                nueva.principal = True  # la primera siempre es la principal
+            nueva.save()
+            messages.success(request, "Dirección guardada.")
+            return redirect("mis_direcciones")
+    else:
+        form = DireccionForm(instance=direccion)
+    return render(request, "tienda/direccion_form.html", {"form": form, "direccion": direccion})
+
+
+@login_required
+@require_POST
+def direccion_principal(request, pk):
+    direccion = get_object_or_404(Direccion, pk=pk, usuario=request.user)
+    direccion.principal = True
+    direccion.save()
+    messages.success(request, "Ahora es tu dirección principal.")
+    return redirect("mis_direcciones")
+
+
+@login_required
+@require_POST
+def direccion_borrar(request, pk):
+    direccion = get_object_or_404(Direccion, pk=pk, usuario=request.user)
+    era_principal = direccion.principal
+    direccion.delete()
+    if era_principal:
+        otra = request.user.direcciones.first()
+        if otra:
+            otra.principal = True
+            otra.save()
+    messages.success(request, "Dirección eliminada.")
+    return redirect("mis_direcciones")
+ETIQUETAS = {
+    "franquicia": (Franquicia, FranquiciaForm, "franquicia"),
+    "tipo": (TipoProducto, TipoForm, "tipo de producto"),
+    "linea": (Linea, LineaForm, "línea o marca"),
+    "estado": (Condicion, CondicionNombreForm, "estado"),
+}
+
+
+@solo_admin
+def panel_etiqueta_editar(request, clave, pk):
+    if clave not in ETIQUETAS:
+        raise Http404
+    modelo, formulario, nombre_legible = ETIQUETAS[clave]
+    objeto = get_object_or_404(modelo, pk=pk)
+
+    if request.method == "POST":
+        form = formulario(request.POST, instance=objeto)
+        if form.is_valid():
+            form.save()
+            messages.success(request, f"Cambio guardado: «{objeto}».")
+            return redirect("panel_clasificacion")
+    else:
+        form = formulario(instance=objeto)
+    return render(request, "tienda/panel_etiqueta_form.html", {
+        "seccion": "clasificacion",
+        "form": form,
+        "objeto": objeto,
+        "nombre_legible": nombre_legible,
+        "usos": objeto.productos.count(),
+    })
+
+
+@solo_admin
+@require_POST
+def panel_etiqueta_borrar(request, clave, pk):
+    if clave not in ETIQUETAS:
+        raise Http404
+    modelo, _formulario, nombre_legible = ETIQUETAS[clave]
+    objeto = get_object_or_404(modelo, pk=pk)
+    etiqueta = str(objeto)
+
+    usos = objeto.productos.count()
+    if usos:
+        messages.error(
+            request,
+            f"No se puede eliminar «{etiqueta}»: la usan {usos} producto(s). "
+            "Cámbiales ese dato primero.",
+        )
+    else:
+        try:
+            objeto.delete()
+        except ProtectedError:
+            messages.error(request, f"No se puede eliminar «{etiqueta}» porque está en uso.")
+        else:
+            messages.success(request, f"Se eliminó {nombre_legible} «{etiqueta}».")
+    return redirect("panel_clasificacion")

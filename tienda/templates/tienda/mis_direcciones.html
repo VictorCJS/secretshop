@@ -1,0 +1,45 @@
+{% extends "tienda/base.html" %}
+
+{% block titulo %}Mis direcciones{% endblock %}
+
+{% block contenido %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h1 class="mb-0">Mis direcciones</h1>
+    {% if direcciones|length < maximo %}
+    <a href="{% url 'direccion_nueva' %}" class="btn btn-dark">+ Agregar dirección</a>
+    {% endif %}
+</div>
+
+<div class="row row-cols-1 row-cols-md-2 g-3">
+    {% for d in direcciones %}
+    <div class="col">
+        <div class="card h-100">
+            <div class="card-body">
+                <h5 class="card-title d-flex justify-content-between">
+                    <span>{{ d.alias|default:d.calle }}</span>
+                    {% if d.principal %}<span class="badge text-bg-success">Principal</span>{% endif %}
+                </h5>
+                <p class="mb-1"><strong>{{ d.nombre }}</strong> · {{ d.telefono }}</p>
+                <p class="mb-0">{{ d.texto|linebreaksbr }}</p>
+            </div>
+            <div class="card-footer bg-transparent d-flex flex-wrap gap-2">
+                <a href="{% url 'direccion_editar' d.pk %}" class="btn btn-sm btn-outline-dark">Editar</a>
+                {% if not d.principal %}
+                <form method="post" action="{% url 'direccion_principal' d.pk %}" class="d-inline">
+                    {% csrf_token %}
+                    <button type="submit" class="btn btn-sm btn-outline-secondary">Hacer principal</button>
+                </form>
+                {% endif %}
+                <form method="post" action="{% url 'direccion_borrar' d.pk %}" class="d-inline"
+                      onsubmit="return confirm('¿Eliminar esta dirección?');">
+                    {% csrf_token %}
+                    <button type="submit" class="btn btn-sm btn-outline-danger">Eliminar</button>
+                </form>
+            </div>
+        </div>
+    </div>
+    {% empty %}
+    <p>Aún no tienes direcciones guardadas. Se guardan al comprar, o puedes agregarlas aquí.</p>
+    {% endfor %}
+</div>
+{% endblock %}

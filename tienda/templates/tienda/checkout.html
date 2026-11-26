@@ -4,16 +4,56 @@
 
 {% block contenido %}
 <h1 class="mb-4">Finalizar compra</h1>
+
+{% if not user.is_authenticated %}
+<div class="alert alert-light border">
+    ¿Ya tienes cuenta? <a href="{% url 'login' %}?next={% url 'checkout' %}">Inicia sesión</a>
+    para usar tus direcciones guardadas. También puedes comprar sin cuenta.
+</div>
+{% endif %}
+
 <div class="row">
     <div class="col-md-7">
-        <h4>Datos de envío</h4>
+        <h4>Contacto y envío</h4>
+
+        {% if direcciones %}
+        <div class="mb-3">
+            <label class="form-label" for="mis-direcciones">Mis direcciones</label>
+            <select id="mis-direcciones" class="form-select">
+                <option value="">— Escribir otra dirección —</option>
+                {% for d in direcciones %}<option value="{{ d.pk }}">{{ d }}</option>{% endfor %}
+            </select>
+        </div>
+        {% endif %}
+
         <form method="post">
             {% csrf_token %}
-            {{ form.as_p }}
-            <button type="submit" class="btn btn-success">Confirmar pedido</button>
-            <a href="{% url 'ver_carrito' %}" class="btn btn-outline-secondary">Volver al carrito</a>
+            {% for error in form.non_field_errors %}<div class="alert alert-danger">{{ error }}</div>{% endfor %}
+
+            <div class="row g-3">
+                {% for campo in form %}
+                <div class="{% if campo.name == 'nombre' or campo.name == 'calle' or campo.name == 'referencia' %}col-12{% elif campo.name == 'codigo_postal' %}col-md-4{% elif campo.name == 'entidad' %}col-md-8{% else %}col-md-6{% endif %}">
+                    <label class="form-label" for="{{ campo.id_for_label }}">{{ campo.label }}</label>
+                    {{ campo }}
+                    {% for error in campo.errors %}<div class="text-danger small">{{ error }}</div>{% endfor %}
+                </div>
+                {% endfor %}
+            </div>
+
+            {% if user.is_authenticated %}
+            <div class="form-check mt-3">
+                <input class="form-check-input" type="checkbox" name="guardar_direccion" id="guardar_direccion" checked>
+                <label class="form-check-label" for="guardar_direccion">Guardar esta dirección en mi cuenta</label>
+            </div>
+            {% endif %}
+
+            <div class="mt-4">
+                <button type="submit" class="btn btn-success">Confirmar pedido</button>
+                <a href="{% url 'ver_carrito' %}" class="btn btn-outline-secondary">Volver al carrito</a>
+            </div>
         </form>
     </div>
+
     <div class="col-md-5">
         <h4>Resumen</h4>
         <ul class="list-group mb-3">
@@ -30,4 +70,22 @@
         </ul>
     </div>
 </div>
+
+{{ direcciones_json|json_script:"datos-direcciones" }}
+<script>
+(function () {
+    var selector = document.getElementById("mis-direcciones");
+    if (!selector) { return; }
+    var datos = JSON.parse(document.getElementById("datos-direcciones").textContent);
+    var campos = ["nombre", "telefono", "codigo_postal", "entidad", "ciudad", "colonia", "calle", "referencia"];
+
+    selector.addEventListener("change", function () {
+        var elegida = datos.find(function (d) { return String(d.id) === selector.value; });
+        campos.forEach(function (nombre) {
+            var campo = document.getElementById("id_" + nombre);
+            if (campo) { campo.value = elegida ? elegida[nombre] : ""; }
+        });
+    });
+})();
+</script>
 {% endblock %}

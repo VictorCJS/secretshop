@@ -64,6 +64,7 @@
                         <a class="btn btn-sm btn-info" href="{% url 'panel_inicio' %}">Administrar</a>
                     {% endif %}
                     <a class="btn btn-sm btn-outline-light" href="{% url 'mis_pedidos' %}">Mis pedidos</a>
+                    <a class="btn btn-sm btn-outline-light" href="{% url 'mis_direcciones' %}">Mis direcciones</a>
                     <span class="text-white">Hola, {{ user.username }}</span>
                     <form method="post" action="{% url 'logout' %}" class="m-0">
                         {% csrf_token %}
