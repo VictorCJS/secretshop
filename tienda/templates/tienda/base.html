@@ -73,6 +73,7 @@
                 {% else %}
                     <a class="btn btn-sm btn-outline-light" href="{% url 'login' %}">Entrar</a>
                     <a class="btn btn-sm btn-light" href="{% url 'registro' %}">Registrarse</a>
+                    <a class="btn btn-sm btn-outline-light" href="{% url 'rastrear_pedido' %}">Rastrear pedido</a>
                 {% endif %}
             </div>
         </div>
@@ -105,6 +106,7 @@
             {% else %}
                 <a class="list-group-item list-group-item-action" href="{% url 'login' %}">Entrar</a>
                 <a class="list-group-item list-group-item-action" href="{% url 'registro' %}">Registrarse</a>
+                <a class="list-group-item list-group-item-action" href="{% url 'rastrear_pedido' %}">Rastrear pedido</a>
             {% endif %}
         </div>
     </div>

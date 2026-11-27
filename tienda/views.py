@@ -1,33 +1,29 @@
-import json
-import uuid
 import hashlib
 import hmac
-from decimal import Decimal
+import json
+import re
+import uuid
+from datetime import date, timedelta
+from decimal import Decimal, InvalidOperation
+from functools import wraps
 from urllib import error as urlerror, request as urlrequest
-from django.db.models import Count, Q
 from urllib.parse import urlencode
+
 from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth import login
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.forms import UserCreationForm
+from django.core.exceptions import PermissionDenied, ValidationError
+from django.core.paginator import Paginator
 from django.db import transaction
-from django.http import HttpResponse
-from django.shortcuts import render, get_object_or_404, redirect
+from django.db.models import Count, ProtectedError, Q, Sum
+from django.http import Http404, HttpResponse
+from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
+from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
-from functools import wraps
-from django.core.exceptions import PermissionDenied
-from decimal import Decimal, InvalidOperation
-from django.core.exceptions import ValidationError
-from .models import registrar_venta_fisica
-from datetime import date, timedelta
-
-from django.http import Http404, HttpResponse
-from django.db.models import Count, Prefetch, ProtectedError, Q, Sum
-from django.utils import timezone
-from django.core.paginator import Paginator
 
 from .forms import (
     BannerForm, CategoriaForm, CondicionForm, CondicionNombreForm, DireccionForm,
@@ -35,8 +31,14 @@ from .forms import (
 )
 from .models import (
     Banner, Categoria, Condicion, Direccion, Franquicia, Linea, Pedido,
-    PedidoItem, Producto, TipoProducto,
+    PedidoItem, Producto, TipoProducto, registrar_venta_fisica,
 )
+
+
+# ======================================================================
+# Catálogo
+# ======================================================================
+
 def lista_productos(request):
     activos = Producto.objects.filter(activo=True)
     productos = activos.select_related(
@@ -163,6 +165,8 @@ def lista_productos(request):
         "busqueda": busqueda,
         "titulo_lista": titulo_lista,
     })
+
+
 def detalle_producto(request, pk):
     producto = get_object_or_404(
         Producto.objects.select_related("franquicia", "tipo", "linea", "condicion")
@@ -175,6 +179,7 @@ def detalle_producto(request, pk):
     fotos.extend(extra.imagen for extra in producto.imagenes.all())
     return render(request, "tienda/detalle.html", {"producto": producto, "fotos": fotos})
 
+
 def registro(request):
     if request.method == "POST":
         form = UserCreationForm(request.POST)
@@ -185,6 +190,13 @@ def registro(request):
     else:
         form = UserCreationForm()
     return render(request, "registration/registro.html", {"form": form})
+
+
+# ======================================================================
+# Carrito y checkout
+# ======================================================================
+
+MAX_DIRECCIONES = 10
 
 
 def obtener_items_carrito(carrito):
@@ -201,17 +213,24 @@ def obtener_items_carrito(carrito):
             "subtotal": subtotal,
         })
     return items, total
-MAX_DIRECCIONES = 10
 
 
 def pedido_del_cliente(request, pk):
-    """Devuelve el pedido solo a su dueño, o al invitado que lo creó en este navegador."""
+    """Devuelve el pedido solo a su dueño, o al invitado que lo creó o rastreó en este navegador."""
     pedido = get_object_or_404(Pedido, pk=pk, canal=Pedido.Canal.ONLINE)
     if request.user.is_authenticated and pedido.usuario_id == request.user.pk:
         return pedido
     if pedido.usuario_id is None and pk in request.session.get("pedidos_invitado", []):
         return pedido
     raise Http404
+
+
+def _volver(request, pedido):
+    """Con cuenta regresa a Mis pedidos; sin cuenta, a la página del pedido."""
+    if request.user.is_authenticated:
+        return redirect("mis_pedidos")
+    return redirect("pedido_confirmado", pk=pedido.pk)
+
 
 @require_POST
 def agregar_al_carrito(request, pk):
@@ -348,9 +367,13 @@ def checkout(request):
         ],
     })
 
-@login_required
+
+# ======================================================================
+# Pedidos del cliente (con cuenta o como invitado)
+# ======================================================================
+
 def pedido_confirmado(request, pk):
-    pedido = get_object_or_404(Pedido, pk=pk, usuario=request.user)
+    pedido = pedido_del_cliente(request, pk)
     transferencia = {
         "banco": settings.TRANSFER_BANCO,
         "beneficiario": settings.TRANSFER_BENEFICIARIO,
@@ -368,7 +391,130 @@ def mis_pedidos(request):
     return render(request, "tienda/mis_pedidos.html", {"pedidos": pedidos})
 
 
-# ---------- Pagos con Mercado Pago (API de Orders) ----------
+@require_POST
+def cancelar_mi_pedido(request, pk):
+    pedido = pedido_del_cliente(request, pk)
+    if pedido.puede_cancelar:
+        pedido.cancelar()
+        messages.success(request, f"Pedido #{pedido.pk} cancelado.")
+    else:
+        messages.warning(request, "Solo se pueden cancelar pedidos pendientes de pago.")
+    return _volver(request, pedido)
+
+
+@require_POST
+def solicitar_cancelacion(request, pk):
+    pedido = pedido_del_cliente(request, pk)
+    if pedido.puede_solicitar_cancelacion:
+        pedido.cancelacion_solicitada = True
+        pedido.save(update_fields=["cancelacion_solicitada"])
+        messages.success(
+            request,
+            "Recibimos tu solicitud de cancelación. Te contactaremos para el reembolso.",
+        )
+    return _volver(request, pedido)
+
+
+def editar_envio(request, pk):
+    pedido = pedido_del_cliente(request, pk)
+    if not pedido.puede_editar_envio:
+        messages.warning(request, "Este pedido ya no se puede modificar.")
+        return _volver(request, pedido)
+
+    if request.method == "POST":
+        form = PedidoForm(request.POST, instance=pedido)
+        if form.is_valid():
+            cambios = form.save(commit=False)
+            cambios.save(update_fields=list(form.fields))
+            messages.success(request, "Datos de envío actualizados.")
+            return _volver(request, pedido)
+    else:
+        form = PedidoForm(instance=pedido)
+    return render(request, "tienda/editar_envio.html", {"form": form, "pedido": pedido})
+
+
+@login_required
+@require_POST
+def repetir_pedido(request, pk):
+    pedido = get_object_or_404(Pedido, pk=pk, usuario=request.user)
+    carrito = request.session.get("carrito", {})
+    agregados = 0
+    for item in pedido.items.select_related("producto"):
+        producto = item.producto
+        if producto and producto.activo and producto.stock > 0:
+            clave = str(producto.pk)
+            carrito[clave] = min(carrito.get(clave, 0) + item.cantidad, producto.stock)
+            agregados += 1
+    request.session["carrito"] = carrito
+    if agregados == 0:
+        messages.warning(request, "Esos productos ya no están disponibles.")
+        return redirect("mis_pedidos")
+    messages.success(request, "Agregamos los productos a tu carrito. Ajusta lo que necesites.")
+    return redirect("ver_carrito")
+
+
+@require_POST
+def reportar_transferencia(request, pk):
+    pedido = pedido_del_cliente(request, pk)
+    if pedido.estado != Pedido.Estado.PENDIENTE:
+        return redirect("pedido_confirmado", pk=pedido.pk)
+
+    referencia = " ".join(request.POST.get("referencia", "").split())[:100]
+    if not referencia:
+        messages.error(request, "Escribe la clave de rastreo de tu transferencia.")
+        return redirect("pedido_confirmado", pk=pedido.pk)
+
+    # Una misma transferencia no puede usarse para varios pedidos.
+    if Pedido.objects.filter(referencia_pago__iexact=referencia).exclude(pk=pedido.pk).exists():
+        messages.error(
+            request,
+            "Esa clave de rastreo ya está registrada en otro pedido. "
+            "Si crees que es un error, contáctanos.",
+        )
+        return redirect("pedido_confirmado", pk=pedido.pk)
+
+    pedido.metodo_pago = "transferencia"
+    pedido.referencia_pago = referencia
+    pedido.estado = Pedido.Estado.POR_VERIFICAR
+    pedido.save(update_fields=["metodo_pago", "referencia_pago", "estado"])
+    messages.success(
+        request,
+        "Recibimos tu aviso. Revisaremos tu transferencia y te confirmaremos el pago.",
+    )
+    return redirect("pedido_confirmado", pk=pedido.pk)
+
+
+def _solo_digitos(texto):
+    return re.sub(r"\D", "", texto or "")[-10:]
+
+
+def rastrear_pedido(request):
+    error = ""
+    codigo = telefono = ""
+    if request.method == "POST":
+        codigo = request.POST.get("codigo", "").upper().replace("-", "").replace(" ", "")
+        telefono = request.POST.get("telefono", "")
+        pedido = Pedido.objects.filter(codigo=codigo, canal=Pedido.Canal.ONLINE).first()
+        if pedido and _solo_digitos(pedido.telefono) == _solo_digitos(telefono):
+            if pedido.usuario_id:
+                messages.info(request, "Ese pedido está ligado a una cuenta. Inicia sesión para verlo.")
+                destino = reverse("pedido_confirmado", args=[pedido.pk])
+                return redirect(f"{reverse('login')}?next={destino}")
+            ids = request.session.get("pedidos_invitado", [])
+            if pedido.pk not in ids:
+                request.session["pedidos_invitado"] = (ids + [pedido.pk])[-20:]
+            return redirect("pedido_confirmado", pk=pedido.pk)
+        error = "No encontramos un pedido con ese código y teléfono. Revisa los datos."
+    return render(request, "tienda/rastrear_pedido.html", {
+        "error": error,
+        "codigo": codigo,
+        "telefono": telefono,
+    })
+
+
+# ======================================================================
+# Pagos con Mercado Pago (API de Orders)
+# ======================================================================
 
 MP_API = "https://api.mercadopago.com"
 
@@ -419,9 +565,8 @@ def sincronizar_pago(order_id):
     return pedido
 
 
-@login_required
 def pagar_pedido(request, pk):
-    pedido = get_object_or_404(Pedido, pk=pk, usuario=request.user)
+    pedido = pedido_del_cliente(request, pk)
     if pedido.estado not in ("pendiente", "por_verificar"):
         return redirect("pedido_confirmado", pk=pedido.pk)
 
@@ -488,7 +633,6 @@ def pago_retorno(request):
     return redirect("pedido_confirmado", pk=pedido.pk)
 
 
-@csrf_exempt
 def firma_webhook_valida(request, data_id):
     secreto = settings.MP_WEBHOOK_SECRET
     if not secreto:
@@ -538,6 +682,70 @@ def mp_webhook(request):
     if order_id:
         sincronizar_pago(order_id)
     return HttpResponse(status=200)
+
+
+# ======================================================================
+# Direcciones del cliente (requieren cuenta)
+# ======================================================================
+
+@login_required
+def mis_direcciones(request):
+    return render(request, "tienda/mis_direcciones.html", {
+        "direcciones": request.user.direcciones.all(),
+        "maximo": MAX_DIRECCIONES,
+    })
+
+
+@login_required
+def direccion_form(request, pk=None):
+    direccion = get_object_or_404(Direccion, pk=pk, usuario=request.user) if pk else None
+    if direccion is None and request.user.direcciones.count() >= MAX_DIRECCIONES:
+        messages.error(request, f"Puedes guardar hasta {MAX_DIRECCIONES} direcciones.")
+        return redirect("mis_direcciones")
+
+    if request.method == "POST":
+        form = DireccionForm(request.POST, instance=direccion)
+        if form.is_valid():
+            nueva = form.save(commit=False)
+            nueva.usuario = request.user
+            if not request.user.direcciones.exclude(pk=nueva.pk).exists():
+                nueva.principal = True  # la primera siempre es la principal
+            nueva.save()
+            messages.success(request, "Dirección guardada.")
+            return redirect("mis_direcciones")
+    else:
+        form = DireccionForm(instance=direccion)
+    return render(request, "tienda/direccion_form.html", {"form": form, "direccion": direccion})
+
+
+@login_required
+@require_POST
+def direccion_principal(request, pk):
+    direccion = get_object_or_404(Direccion, pk=pk, usuario=request.user)
+    direccion.principal = True
+    direccion.save()
+    messages.success(request, "Ahora es tu dirección principal.")
+    return redirect("mis_direcciones")
+
+
+@login_required
+@require_POST
+def direccion_borrar(request, pk):
+    direccion = get_object_or_404(Direccion, pk=pk, usuario=request.user)
+    era_principal = direccion.principal
+    direccion.delete()
+    if era_principal:
+        otra = request.user.direcciones.first()
+        if otra:
+            otra.principal = True
+            otra.save()
+    messages.success(request, "Dirección eliminada.")
+    return redirect("mis_direcciones")
+
+
+# ======================================================================
+# Panel de administración
+# ======================================================================
 
 def solo_admin(vista):
     """Permite el acceso solo a usuarios con sesión y permiso de staff."""
@@ -615,6 +823,31 @@ def panel_cambiar_estado(request, pk):
 
 
 @solo_admin
+@require_POST
+def panel_resolver_transferencia(request, pk):
+    pedido = Pedido.objects.filter(
+        pk=pk, canal=Pedido.Canal.ONLINE, estado=Pedido.Estado.POR_VERIFICAR
+    ).first()
+    if pedido is None:
+        messages.warning(request, "Ese pedido ya no está por verificar.")
+    elif request.POST.get("accion") == "confirmar":
+        pedido.estado = Pedido.Estado.PAGADO
+        pedido.metodo_pago = "transferencia"
+        pedido.save(update_fields=["estado", "metodo_pago"])
+        # Si ya conectaste los correos, agrega aquí: correo_pago_confirmado(pedido)
+        messages.success(request, f"Pago del pedido #{pedido.pk} confirmado.")
+    elif request.POST.get("accion") == "rechazar":
+        pedido.estado = Pedido.Estado.PENDIENTE
+        pedido.referencia_pago = ""
+        pedido.save(update_fields=["estado", "referencia_pago"])
+        messages.warning(
+            request,
+            f"El pedido #{pedido.pk} volvió a pendiente: el cliente puede pagar de nuevo.",
+        )
+    return redirect(f"{reverse('panel_pedidos')}?estado=por_verificar")
+
+
+@solo_admin
 def panel_productos(request):
     productos = (Producto.objects
                  .select_related("franquicia", "tipo", "linea")
@@ -672,6 +905,8 @@ def panel_productos(request):
         "franquicia_sel": franquicia,
         "linea_sel": int(linea) if linea else None,
     })
+
+
 @solo_admin
 def panel_producto_form(request, pk=None):
     producto = get_object_or_404(Producto, pk=pk) if pk else None
@@ -692,6 +927,8 @@ def panel_producto_form(request, pk=None):
         "lineas": list(Linea.objects.values_list("nombre", flat=True)),
         "lineas_info": list(Linea.objects.values("nombre", "tipo__nombre", "franquicia__nombre")),
     })
+
+
 @solo_admin
 @require_POST
 def panel_producto_activar(request, pk):
@@ -725,114 +962,8 @@ def panel_categorias(request):
         "form": form,
         "padres": padres,
     })
-@login_required
-@require_POST
-def cancelar_mi_pedido(request, pk):
-    pedido = get_object_or_404(Pedido, pk=pk, usuario=request.user)
-    if pedido.puede_cancelar:
-        pedido.cancelar()
-        messages.success(request, f"Pedido #{pedido.pk} cancelado.")
-    else:
-        messages.warning(request, "Solo se pueden cancelar pedidos pendientes de pago.")
-    return redirect("mis_pedidos")
 
 
-@login_required
-@require_POST
-def solicitar_cancelacion(request, pk):
-    pedido = get_object_or_404(Pedido, pk=pk, usuario=request.user)
-    if pedido.puede_solicitar_cancelacion:
-        pedido.cancelacion_solicitada = True
-        pedido.save(update_fields=["cancelacion_solicitada"])
-        messages.success(
-            request,
-            "Recibimos tu solicitud de cancelación. Te contactaremos para el reembolso.",
-        )
-    return redirect("mis_pedidos")
-
-
-@login_required
-def editar_envio(request, pk):
-    pedido = get_object_or_404(Pedido, pk=pk, usuario=request.user)
-    if not pedido.puede_editar_envio:
-        messages.warning(request, "Este pedido ya no se puede modificar.")
-        return redirect("mis_pedidos")
-
-    if request.method == "POST":
-        form = PedidoForm(request.POST, instance=pedido)
-        if form.is_valid():
-            cambios = form.save(commit=False)
-            cambios.save(update_fields=list(form.fields))
-            messages.success(request, "Datos de envío actualizados.")
-            return redirect("mis_pedidos")
-    else:
-        form = PedidoForm(instance=pedido)
-    return render(request, "tienda/editar_envio.html", {"form": form, "pedido": pedido})
-
-
-@login_required
-@require_POST
-def cancelar_mi_pedido(request, pk):
-    pedido = get_object_or_404(Pedido, pk=pk, usuario=request.user)
-    if pedido.puede_cancelar:
-        pedido.cancelar()
-        messages.success(request, f"Pedido #{pedido.pk} cancelado.")
-    else:
-        messages.warning(request, "Solo se pueden cancelar pedidos pendientes de pago.")
-    return redirect("mis_pedidos")
-
-
-@login_required
-@require_POST
-def solicitar_cancelacion(request, pk):
-    pedido = get_object_or_404(Pedido, pk=pk, usuario=request.user)
-    if pedido.puede_solicitar_cancelacion:
-        pedido.cancelacion_solicitada = True
-        pedido.save(update_fields=["cancelacion_solicitada"])
-        messages.success(
-            request,
-            "Recibimos tu solicitud de cancelación. Te contactaremos para el reembolso.",
-        )
-    return redirect("mis_pedidos")
-
-
-@login_required
-def editar_envio(request, pk):
-    pedido = get_object_or_404(Pedido, pk=pk, usuario=request.user)
-    if not pedido.puede_editar_envio:
-        messages.warning(request, "Este pedido ya no se puede modificar.")
-        return redirect("mis_pedidos")
-
-    if request.method == "POST":
-        form = PedidoForm(request.POST, instance=pedido)
-        if form.is_valid():
-            cambios = form.save(commit=False)
-            cambios.save(update_fields=list(form.fields))
-            messages.success(request, "Datos de envío actualizados.")
-            return redirect("mis_pedidos")
-    else:
-        form = PedidoForm(instance=pedido)
-    return render(request, "tienda/editar_envio.html", {"form": form, "pedido": pedido})
-
-
-@login_required
-@require_POST
-def repetir_pedido(request, pk):
-    pedido = get_object_or_404(Pedido, pk=pk, usuario=request.user)
-    carrito = request.session.get("carrito", {})
-    agregados = 0
-    for item in pedido.items.select_related("producto"):
-        producto = item.producto
-        if producto and producto.activo and producto.stock > 0:
-            clave = str(producto.pk)
-            carrito[clave] = min(carrito.get(clave, 0) + item.cantidad, producto.stock)
-            agregados += 1
-    request.session["carrito"] = carrito
-    if agregados == 0:
-        messages.warning(request, "Esos productos ya no están disponibles.")
-        return redirect("mis_pedidos")
-    messages.success(request, "Agregamos los productos a tu carrito. Ajusta lo que necesites.")
-    return redirect("ver_carrito")
 @solo_admin
 def panel_banners(request):
     return render(request, "tienda/panel_banners.html", {
@@ -876,6 +1007,7 @@ def panel_banner_borrar(request, pk):
     banner.delete()
     messages.success(request, "Banner eliminado.")
     return redirect("panel_banners")
+
 
 @solo_admin
 def panel_clasificacion(request):
@@ -921,6 +1053,70 @@ def panel_clasificacion(request):
         "tipos": TipoProducto.objects.annotate(total=Count("productos")).prefetch_related("condiciones"),
         "submenus": TipoProducto.Submenu.choices,
     })
+
+
+ETIQUETAS = {
+    "franquicia": (Franquicia, FranquiciaForm, "franquicia"),
+    "tipo": (TipoProducto, TipoForm, "tipo de producto"),
+    "linea": (Linea, LineaForm, "línea o marca"),
+    "estado": (Condicion, CondicionNombreForm, "estado"),
+}
+
+
+@solo_admin
+def panel_etiqueta_editar(request, clave, pk):
+    if clave not in ETIQUETAS:
+        raise Http404
+    modelo, formulario, nombre_legible = ETIQUETAS[clave]
+    objeto = get_object_or_404(modelo, pk=pk)
+
+    if request.method == "POST":
+        form = formulario(request.POST, instance=objeto)
+        if form.is_valid():
+            form.save()
+            messages.success(request, f"Cambio guardado: «{objeto}».")
+            return redirect("panel_clasificacion")
+    else:
+        form = formulario(instance=objeto)
+    return render(request, "tienda/panel_etiqueta_form.html", {
+        "seccion": "clasificacion",
+        "form": form,
+        "objeto": objeto,
+        "nombre_legible": nombre_legible,
+        "usos": objeto.productos.count(),
+    })
+
+
+@solo_admin
+@require_POST
+def panel_etiqueta_borrar(request, clave, pk):
+    if clave not in ETIQUETAS:
+        raise Http404
+    modelo, _formulario, nombre_legible = ETIQUETAS[clave]
+    objeto = get_object_or_404(modelo, pk=pk)
+    etiqueta = str(objeto)
+
+    usos = objeto.productos.count()
+    if usos:
+        messages.error(
+            request,
+            f"No se puede eliminar «{etiqueta}»: la usan {usos} producto(s). "
+            "Cámbiales ese dato primero.",
+        )
+    else:
+        try:
+            objeto.delete()
+        except ProtectedError:
+            messages.error(request, f"No se puede eliminar «{etiqueta}» porque está en uso.")
+        else:
+            messages.success(request, f"Se eliminó {nombre_legible} «{etiqueta}».")
+    return redirect("panel_clasificacion")
+
+
+# ======================================================================
+# Ventas físicas
+# ======================================================================
+
 @solo_admin
 def panel_venta_fisica(request):
     productos = (
@@ -974,6 +1170,8 @@ def panel_venta_fisica(request):
         "seccion": "venta_fisica",
         "productos": productos,
     })
+
+
 @solo_admin
 def panel_venta_nueva(request):
     previo = {"items": [], "metodo": "efectivo", "cliente": ""}
@@ -1053,6 +1251,8 @@ def panel_venta_nueva(request):
         "catalogo": catalogo,
         "previo": previo,
     })
+
+
 @solo_admin
 def panel_venta_ticket(request, pk):
     venta = get_object_or_404(
@@ -1108,169 +1308,3 @@ def panel_venta_anular(request, pk):
         )
     fecha = timezone.localtime(venta.creado).date().isoformat()
     return redirect(f"{reverse('panel_ventas')}?fecha={fecha}")
-@login_required
-@require_POST
-def reportar_transferencia(request, pk):
-    pedido = get_object_or_404(
-        Pedido, pk=pk, usuario=request.user, canal=Pedido.Canal.ONLINE
-    )
-    if pedido.estado != Pedido.Estado.PENDIENTE:
-        return redirect("pedido_confirmado", pk=pedido.pk)
-
-    referencia = " ".join(request.POST.get("referencia", "").split())[:100]
-    if not referencia:
-        messages.error(request, "Escribe la clave de rastreo de tu transferencia.")
-        return redirect("pedido_confirmado", pk=pedido.pk)
-
-    # Una misma transferencia no puede usarse para varios pedidos.
-    if Pedido.objects.filter(referencia_pago__iexact=referencia).exclude(pk=pedido.pk).exists():
-        messages.error(
-            request,
-            "Esa clave de rastreo ya está registrada en otro pedido. "
-            "Si crees que es un error, contáctanos.",
-        )
-        return redirect("pedido_confirmado", pk=pedido.pk)
-
-    pedido.metodo_pago = "transferencia"
-    pedido.referencia_pago = referencia
-    pedido.estado = Pedido.Estado.POR_VERIFICAR
-    pedido.save(update_fields=["metodo_pago", "referencia_pago", "estado"])
-    messages.success(
-        request,
-        "Recibimos tu aviso. Revisaremos tu transferencia y te confirmaremos el pago.",
-    )
-    return redirect("pedido_confirmado", pk=pedido.pk)
-
-
-@solo_admin
-@require_POST
-def panel_resolver_transferencia(request, pk):
-    pedido = Pedido.objects.filter(
-        pk=pk, canal=Pedido.Canal.ONLINE, estado=Pedido.Estado.POR_VERIFICAR
-    ).first()
-    if pedido is None:
-        messages.warning(request, "Ese pedido ya no está por verificar.")
-    elif request.POST.get("accion") == "confirmar":
-        pedido.estado = Pedido.Estado.PAGADO
-        pedido.metodo_pago = "transferencia"
-        pedido.save(update_fields=["estado", "metodo_pago"])
-        # Si ya conectaste los correos, agrega aquí: correo_pago_confirmado(pedido)
-        messages.success(request, f"Pago del pedido #{pedido.pk} confirmado.")
-    elif request.POST.get("accion") == "rechazar":
-        pedido.estado = Pedido.Estado.PENDIENTE
-        pedido.referencia_pago = ""
-        pedido.save(update_fields=["estado", "referencia_pago"])
-        messages.warning(
-            request,
-            f"El pedido #{pedido.pk} volvió a pendiente: el cliente puede pagar de nuevo.",
-        )
-    return redirect(f"{reverse('panel_pedidos')}?estado=por_verificar")
-@login_required
-def mis_direcciones(request):
-    return render(request, "tienda/mis_direcciones.html", {
-        "direcciones": request.user.direcciones.all(),
-        "maximo": MAX_DIRECCIONES,
-    })
-
-
-@login_required
-def direccion_form(request, pk=None):
-    direccion = get_object_or_404(Direccion, pk=pk, usuario=request.user) if pk else None
-    if direccion is None and request.user.direcciones.count() >= MAX_DIRECCIONES:
-        messages.error(request, f"Puedes guardar hasta {MAX_DIRECCIONES} direcciones.")
-        return redirect("mis_direcciones")
-
-    if request.method == "POST":
-        form = DireccionForm(request.POST, instance=direccion)
-        if form.is_valid():
-            nueva = form.save(commit=False)
-            nueva.usuario = request.user
-            if not request.user.direcciones.exclude(pk=nueva.pk).exists():
-                nueva.principal = True  # la primera siempre es la principal
-            nueva.save()
-            messages.success(request, "Dirección guardada.")
-            return redirect("mis_direcciones")
-    else:
-        form = DireccionForm(instance=direccion)
-    return render(request, "tienda/direccion_form.html", {"form": form, "direccion": direccion})
-
-
-@login_required
-@require_POST
-def direccion_principal(request, pk):
-    direccion = get_object_or_404(Direccion, pk=pk, usuario=request.user)
-    direccion.principal = True
-    direccion.save()
-    messages.success(request, "Ahora es tu dirección principal.")
-    return redirect("mis_direcciones")
-
-
-@login_required
-@require_POST
-def direccion_borrar(request, pk):
-    direccion = get_object_or_404(Direccion, pk=pk, usuario=request.user)
-    era_principal = direccion.principal
-    direccion.delete()
-    if era_principal:
-        otra = request.user.direcciones.first()
-        if otra:
-            otra.principal = True
-            otra.save()
-    messages.success(request, "Dirección eliminada.")
-    return redirect("mis_direcciones")
-ETIQUETAS = {
-    "franquicia": (Franquicia, FranquiciaForm, "franquicia"),
-    "tipo": (TipoProducto, TipoForm, "tipo de producto"),
-    "linea": (Linea, LineaForm, "línea o marca"),
-    "estado": (Condicion, CondicionNombreForm, "estado"),
-}
-
-
-@solo_admin
-def panel_etiqueta_editar(request, clave, pk):
-    if clave not in ETIQUETAS:
-        raise Http404
-    modelo, formulario, nombre_legible = ETIQUETAS[clave]
-    objeto = get_object_or_404(modelo, pk=pk)
-
-    if request.method == "POST":
-        form = formulario(request.POST, instance=objeto)
-        if form.is_valid():
-            form.save()
-            messages.success(request, f"Cambio guardado: «{objeto}».")
-            return redirect("panel_clasificacion")
-    else:
-        form = formulario(instance=objeto)
-    return render(request, "tienda/panel_etiqueta_form.html", {
-        "seccion": "clasificacion",
-        "form": form,
-        "objeto": objeto,
-        "nombre_legible": nombre_legible,
-        "usos": objeto.productos.count(),
-    })
-
-
-@solo_admin
-@require_POST
-def panel_etiqueta_borrar(request, clave, pk):
-    if clave not in ETIQUETAS:
-        raise Http404
-    modelo, _formulario, nombre_legible = ETIQUETAS[clave]
-    objeto = get_object_or_404(modelo, pk=pk)
-    etiqueta = str(objeto)
-
-    usos = objeto.productos.count()
-    if usos:
-        messages.error(
-            request,
-            f"No se puede eliminar «{etiqueta}»: la usan {usos} producto(s). "
-            "Cámbiales ese dato primero.",
-        )
-    else:
-        try:
-            objeto.delete()
-        except ProtectedError:
-            messages.error(request, f"No se puede eliminar «{etiqueta}» porque está en uso.")
-        else:
-            messages.success(request, f"Se eliminó {nombre_legible} «{etiqueta}».")
-    return redirect("panel_clasificacion")

@@ -3,8 +3,14 @@ from django.core.exceptions import ValidationError
 from django.db import models, transaction
 from django.db.models import F
 from decimal import Decimal
-import unicodedata  # (va con los imports de arriba)
+import unicodedata
+import secrets
 
+ALFABETO_CODIGO = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"  
+
+
+def generar_codigo_pedido():
+    return "".join(secrets.choice(ALFABETO_CODIGO) for _ in range(8))
 
 def clave_normalizada(texto):
     """Para comparar nombres sin importar mayúsculas, acentos ni espacios extra."""
@@ -269,9 +275,7 @@ class Pedido(models.Model):
     email = models.EmailField(blank=True)
     telefono = models.CharField(max_length=30)
     total = models.DecimalField(max_digits=10, decimal_places=2)
-    estado = models.CharField(
-        max_length=20, choices=Estado.choices, default=Estado.PENDIENTE
-    )
+    estado = models.CharField(max_length=20, choices=Estado.choices, default=Estado.PENDIENTE)
     creado = models.DateTimeField(auto_now_add=True)
     pago_id = models.CharField(max_length=64, blank=True)
     mp_order_id = models.CharField(max_length=64, blank=True)
@@ -279,12 +283,25 @@ class Pedido(models.Model):
     cancelacion_solicitada = models.BooleanField(default=False)
     referencia_pago = models.CharField(max_length=100, blank=True)
     monto_recibido = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
+    codigo = models.CharField(max_length=8, unique=True, null=True, blank=True, editable=False)
+
 
     class Meta:
         ordering = ["-creado"]
 
     def __str__(self):
         return f"Pedido #{self.pk} - {self.usuario or self.nombre}"
+    def save(self, *args, **kwargs):
+        if not self.codigo:
+            codigo = generar_codigo_pedido()
+            while Pedido.objects.filter(codigo=codigo).exists():
+                codigo = generar_codigo_pedido()
+            self.codigo = codigo
+        super().save(*args, **kwargs)
+
+    @property
+    def codigo_legible(self):
+        return f"{self.codigo[:4]}-{self.codigo[4:]}" if self.codigo else ""
 
     def cancelar(self):
         """Cancela el pedido y devuelve el stock. No hace nada si ya estaba cancelado."""

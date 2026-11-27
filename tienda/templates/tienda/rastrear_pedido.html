@@ -1,0 +1,26 @@
+{% extends "tienda/base.html" %}
+
+{% block titulo %}Rastrear pedido · Secret Store in the Hood{% endblock %}
+
+{% block contenido %}
+<div class="col-md-6 col-lg-5 mx-auto">
+    <h3 class="mb-3">Rastrear mi pedido</h3>
+    <p class="text-muted">Escribe el código que recibiste al comprar y el teléfono que usaste en el pedido.</p>
+
+    {% if error %}<div class="alert alert-danger">{{ error }}</div>{% endif %}
+
+    <form method="post" autocomplete="off">
+        {% csrf_token %}
+        <div class="mb-3">
+            <label class="form-label" for="codigo">Código de seguimiento</label>
+            <input type="text" id="codigo" name="codigo" value="{{ codigo }}" class="form-control text-uppercase"
+                   placeholder="Ej. K7M4-Q9XP" required maxlength="12">
+        </div>
+        <div class="mb-3">
+            <label class="form-label" for="telefono">Teléfono del pedido</label>
+            <input type="tel" id="telefono" name="telefono" value="{{ telefono }}" class="form-control" required>
+        </div>
+        <button type="submit" class="btn btn-dark w-100">Ver mi pedido</button>
+    </form>
+</div>
+{% endblock %}

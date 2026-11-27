@@ -45,9 +45,7 @@ urlpatterns = [
     path("cuenta/direcciones/<int:pk>/editar/", views.direccion_form, name="direccion_editar"),
     path("cuenta/direcciones/<int:pk>/principal/", views.direccion_principal, name="direccion_principal"),
     path("cuenta/direcciones/<int:pk>/borrar/", views.direccion_borrar, name="direccion_borrar"),
-    path("administrar/clasificacion/<str:clave>/<int:pk>/editar/", views.panel_etiqueta_editar,
-         name="panel_etiqueta_editar"),
-    path("administrar/clasificacion/<str:clave>/<int:pk>/borrar/", views.panel_etiqueta_borrar,
-         name="panel_etiqueta_borrar"),
-
+    path("administrar/clasificacion/<str:clave>/<int:pk>/editar/", views.panel_etiqueta_editar,name="panel_etiqueta_editar"),
+    path("administrar/clasificacion/<str:clave>/<int:pk>/borrar/", views.panel_etiqueta_borrar,name="panel_etiqueta_borrar"),
+    path("rastrear/", views.rastrear_pedido, name="rastrear_pedido"),
 ]

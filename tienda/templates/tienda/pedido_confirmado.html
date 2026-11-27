@@ -1,12 +1,12 @@
 {% extends "tienda/base.html" %}
 
-{% block titulo %}Pedido #{{ pedido.pk }}{% endblock %}
+{% block titulo %}Pedido {{ pedido.codigo_legible|default:pedido.pk }} · Secret Store in the Hood{% endblock %}
 
 {% block contenido %}
 {% if pedido.estado == "pagado" %}
 <div class="alert alert-success">
-    <h4 class="alert-heading">¡Pago recibido, gracias por tu compra!</h4>
-    <p class="mb-0">Tu pedido #{{ pedido.pk }} está pagado.</p>
+    <h4 class="alert-heading">¡Compra completada!</h4>
+    <p class="mb-0">Recibimos tu pago. Te avisaremos cuando tu pedido vaya en camino.</p>
 </div>
 {% elif pedido.estado == "por_verificar" %}
 <div class="alert alert-info">
@@ -16,7 +16,7 @@
 </div>
 {% elif pedido.estado == "pendiente" %}
 <div class="alert alert-warning">
-    <h4 class="alert-heading">Pedido #{{ pedido.pk }}: elige cómo pagar</h4>
+    <h4 class="alert-heading">¡Pedido registrado! Elige cómo pagar</h4>
     <p>Tu pedido queda apartado mientras completas el pago.</p>
     <a href="{% url 'pagar_pedido' pedido.pk %}" class="btn btn-success">Pagar con Mercado Pago</a>
     {% if transferencia.clabe %}
@@ -25,11 +25,32 @@
     </button>
     {% endif %}
 </div>
-{% else %}
-<div class="alert alert-secondary">
-    Pedido #{{ pedido.pk }} - Estado: {{ pedido.get_estado_display }}
-</div>
 {% endif %}
+
+<div class="card mb-3">
+    <div class="card-body">
+        <div class="d-flex justify-content-between align-items-start flex-wrap gap-3">
+            <div>
+                <div class="text-muted small">Código de seguimiento</div>
+                <div class="fs-3 fw-bold font-monospace">{{ pedido.codigo_legible }}</div>
+                <div class="text-muted small">Pedido #{{ pedido.pk }} · {{ pedido.creado|date:"j M Y, H:i" }}</div>
+            </div>
+            <div class="text-end">
+                <div class="text-muted small">Estatus</div>
+                <span class="badge fs-6
+                    {% if pedido.estado == 'cancelado' %}bg-danger
+                    {% elif pedido.estado == 'entregado' %}bg-success
+                    {% elif pedido.estado == 'pendiente' %}bg-warning text-dark
+                    {% else %}bg-primary{% endif %}">
+                    {{ pedido.get_estado_display }}
+                </span>
+            </div>
+        </div>
+        {% if pedido.numero_guia %}
+            <p class="mt-3 mb-0">Número de guía: <strong>{{ pedido.numero_guia }}</strong></p>
+        {% endif %}
+    </div>
+</div>
 
 <ul class="list-group mb-3">
     {% for item in pedido.items.all %}
@@ -44,7 +65,16 @@
     </li>
 </ul>
 
+{% if pedido.direccion %}
+<div class="mb-3">
+    <div class="fw-semibold">Envío a: {{ pedido.nombre }}</div>
+    <div class="text-muted" style="white-space: pre-line;">{{ pedido.direccion }}</div>
+</div>
+{% endif %}
+
+{% if user.is_authenticated %}
 <a href="{% url 'mis_pedidos' %}" class="btn btn-dark">Ver mis pedidos</a>
+{% endif %}
 <a href="{% url 'lista_productos' %}" class="btn btn-outline-secondary">Seguir comprando</a>
 {% if pedido.puede_editar_envio %}
 <a href="{% url 'editar_envio' pedido.pk %}" class="btn btn-outline-dark">Cambiar datos de envío</a>
@@ -56,12 +86,15 @@
     <button type="submit" class="btn btn-outline-danger">Cancelar pedido</button>
 </form>
 {% endif %}
+
 {% if not user.is_authenticated %}
-<p class="text-muted small mt-3">
-    Compraste sin cuenta: este pedido solo se puede consultar desde este navegador.
-    Guarda tu número de pedido (#{{ pedido.pk }}) por si necesitas escribirnos.
-</p>
+<div class="alert alert-light border mt-3 small mb-0">
+    <strong>Compraste sin cuenta.</strong> Guarda tu código <strong>{{ pedido.codigo_legible }}</strong>:
+    con él y tu teléfono puedes revisar el estatus de tu pedido desde cualquier dispositivo en
+    <a href="{% url 'rastrear_pedido' %}">Rastrear pedido</a>.
+</div>
 {% endif %}
+
 {% if transferencia.clabe %}
 <div class="modal fade" id="modalTransferencia" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog modal-dialog-centered">
