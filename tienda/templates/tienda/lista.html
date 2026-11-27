@@ -180,7 +180,7 @@
                 </div>
                 <div class="small mt-1 text-truncate" title="{{ producto.nombre }}">{{ producto.nombre }}</div>
                 <div class="small text-muted text-truncate">{{ producto.linea|default_if_none:"" }}</div>
-                <div class="fw-bold">${{ producto.precio }}</div>
+                <div class="mt-1">{% include "tienda/_precio.html" %}</div>
             </a>
             {% endfor %}
         </div>
@@ -211,7 +211,7 @@
                             {{ producto.tipo|default_if_none:"" }}{% if producto.franquicia %} · {{ producto.franquicia }}{% endif %}
                         </div>
                         {% if producto.linea %}<div class="small text-muted">{{ producto.linea }}</div>{% endif %}
-                        <div class="fw-bold mt-1">${{ producto.precio }}</div>
+                        <div class="mt-1">{% include "tienda/_precio.html" %}</div>
                     </div>
                     <div class="card-footer bg-transparent border-0 pt-0 pb-2 px-2">
                         <a href="{% url 'detalle_producto' producto.pk %}" class="btn btn-primary btn-sm w-100">Ver</a>

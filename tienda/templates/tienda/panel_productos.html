@@ -55,19 +55,32 @@
             <td>{{ producto.franquicia|default_if_none:"—" }}</td>
             <td>{{ producto.tipo|default_if_none:"—" }}</td>
             <td>{{ producto.linea|default_if_none:"—" }}</td>
-            <td>${{ producto.precio }}</td>
+            <td class="text-nowrap">
+                {% if producto.en_oferta %}
+                    <s class="text-muted">${{ producto.precio }}</s>
+                    <strong class="text-danger">${{ producto.precio_final }}</strong>
+                {% else %}
+                    ${{ producto.precio }}
+                    {% if producto.precio_oferta %}<span class="badge bg-secondary" title="La oferta ya venció">oferta inactiva</span>{% endif %}
+                {% endif %}
+            </td>
             <td>{{ producto.stock }}</td>
             <td>
                 {% if producto.activo %}<span class="badge bg-success">Visible</span>
                 {% else %}<span class="badge bg-secondary">Oculto</span>{% endif %}
             </td>
-            <td class="text-end">
+            <td class="text-end text-nowrap">
                 <a href="{% url 'panel_producto_editar' producto.pk %}" class="btn btn-sm btn-outline-dark">Editar</a>
                 <form method="post" action="{% url 'panel_producto_activar' producto.pk %}" class="d-inline">
                     {% csrf_token %}
                     <button type="submit" class="btn btn-sm btn-outline-secondary">
                         {% if producto.activo %}Ocultar{% else %}Mostrar{% endif %}
                     </button>
+                </form>
+                <form method="post" action="{% url 'panel_producto_borrar' producto.pk %}" class="d-inline"
+                      onsubmit="return confirm('¿Eliminar «{{ producto.nombre|escapejs }}» para siempre? {% if producto.n_pedidos %}Aparece en {{ producto.n_pedidos }} pedido(s); esos pedidos conservan su historial. {% endif %}Si solo quieres quitarlo de la tienda, usa Ocultar.');">
+                    {% csrf_token %}
+                    <button type="submit" class="btn btn-sm btn-outline-danger">Eliminar</button>
                 </form>
             </td>
         </tr>

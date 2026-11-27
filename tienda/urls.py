@@ -48,4 +48,7 @@ urlpatterns = [
     path("administrar/clasificacion/<str:clave>/<int:pk>/editar/", views.panel_etiqueta_editar,name="panel_etiqueta_editar"),
     path("administrar/clasificacion/<str:clave>/<int:pk>/borrar/", views.panel_etiqueta_borrar,name="panel_etiqueta_borrar"),
     path("rastrear/", views.rastrear_pedido, name="rastrear_pedido"),
+    path("administrar/productos/<int:pk>/borrar/", views.panel_producto_borrar, name="panel_producto_borrar"),
+    path("administrar/estados/<int:pk>/editar/", views.panel_estado_editar, name="panel_estado_editar"),
+    path("administrar/estados/<int:pk>/borrar/", views.panel_estado_borrar, name="panel_estado_borrar"),
 ]

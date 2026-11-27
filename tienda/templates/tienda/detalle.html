@@ -61,7 +61,7 @@
         </ul>
 
         <p>{{ producto.descripcion|linebreaksbr }}</p>
-        <h3>${{ producto.precio }}</h3>
+        <h3>{% include "tienda/_precio.html" %}</h3>
         <p>Disponibles: {{ producto.stock }}</p>
 
         {% if producto.stock > 0 %}

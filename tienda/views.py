@@ -205,7 +205,7 @@ def obtener_items_carrito(carrito):
     total = 0
     for producto in productos:
         cantidad = carrito[str(producto.pk)]
-        subtotal = producto.precio * cantidad
+        subtotal = producto.precio_final * cantidad
         total += subtotal
         items.append({
             "producto": producto,
@@ -306,7 +306,7 @@ def checkout(request):
                             f"No hay suficiente stock de {item['producto'].nombre}.",
                         )
                         return redirect("ver_carrito")
-                    total_real += producto.precio * item["cantidad"]
+                    total_real += producto.precio_final * item["cantidad"]
 
                 pedido = form.save(commit=False)
                 pedido.usuario = request.user if autenticado else None
@@ -319,7 +319,7 @@ def checkout(request):
                         pedido=pedido,
                         producto=producto,
                         nombre=producto.nombre,
-                        precio=producto.precio,
+                        precio=producto.precio_final,
                         cantidad=item["cantidad"],
                     )
                     producto.stock -= item["cantidad"]
@@ -894,6 +894,9 @@ def panel_productos(request):
     else:
         linea = ""
 
+    # Cuántos pedidos tiene cada producto (se calcula al final, ya filtrado)
+    productos = productos.annotate(n_pedidos=Count("pedidoitem"))
+
     return render(request, "tienda/panel_productos.html", {
         "seccion": "productos",
         "productos": productos,
@@ -905,7 +908,6 @@ def panel_productos(request):
         "franquicia_sel": franquicia,
         "linea_sel": int(linea) if linea else None,
     })
-
 
 @solo_admin
 def panel_producto_form(request, pk=None):
@@ -1136,7 +1138,7 @@ def panel_venta_fisica(request):
                 cant = int(request.POST.get(f"cant_{p.pk}") or 0)
                 if cant > 0:
                     texto = request.POST.get(f"precio_{p.pk}", "").replace(",", ".").strip()
-                    precio = Decimal(texto) if texto else p.precio
+                    precio = Decimal(texto) if texto else p.precio_final
                     lineas.append((p.pk, cant, precio))
 
             if metodo not in ("efectivo", "transferencia"):
@@ -1308,3 +1310,55 @@ def panel_venta_anular(request, pk):
         )
     fecha = timezone.localtime(venta.creado).date().isoformat()
     return redirect(f"{reverse('panel_ventas')}?fecha={fecha}")
+@solo_admin
+@require_POST
+def panel_producto_borrar(request, pk):
+    producto = get_object_or_404(Producto, pk=pk)
+    nombre = producto.nombre
+    archivos = [producto.imagen] if producto.imagen else []
+    archivos += [extra.imagen for extra in producto.imagenes.all()]
+
+    with transaction.atomic():
+        producto.delete()  # los pedidos anteriores conservan su historial
+    for archivo in archivos:
+        archivo.delete(save=False)
+
+    messages.success(request, f"Producto «{nombre}» eliminado.")
+    return redirect("panel_productos")
+
+
+@solo_admin
+def panel_estado_editar(request, pk):
+    estado = get_object_or_404(Condicion.objects.select_related("tipo"), pk=pk)
+    if request.method == "POST":
+        form = CondicionNombreForm(request.POST, instance=estado)
+        if form.is_valid():
+            form.save()
+            messages.success(request, "Estado actualizado.")
+            return redirect("panel_clasificacion")
+    else:
+        form = CondicionNombreForm(instance=estado)
+    return render(request, "tienda/panel_estado_form.html", {
+        "seccion": "clasificacion",
+        "form": form,
+        "estado": estado,
+        "usos": estado.productos.count(),
+    })
+
+
+@solo_admin
+@require_POST
+def panel_estado_borrar(request, pk):
+    estado = get_object_or_404(Condicion.objects.select_related("tipo"), pk=pk)
+    etiqueta = f"{estado.tipo} · {estado.nombre}"
+    with transaction.atomic():
+        afectados = estado.productos.update(condicion=None)
+        estado.delete()
+    if afectados:
+        messages.success(
+            request,
+            f"Estado «{etiqueta}» eliminado. {afectados} producto(s) quedaron sin estado.",
+        )
+    else:
+        messages.success(request, f"Estado «{etiqueta}» eliminado.")
+    return redirect("panel_clasificacion")

@@ -220,27 +220,34 @@ class ProductoForm(forms.ModelForm):
     )
 
     field_order = [
-        "franquicia_texto", "tipo_texto", "linea_texto", "presentacion", "condicion",
-        "detalle_condicion", "nombre", "descripcion", "precio", "stock",
-        "imagen", "imagenes_extra", "activo",
+        "franquicia_texto", "tipo_texto", "linea_texto", "condicion",
+        "detalle_condicion", "nombre", "descripcion", "precio", "precio_oferta",
+        "oferta_hasta", "stock", "imagen", "imagenes_extra", "activo",
     ]
 
     class Meta:
         model = Producto
         fields = [
-            "nombre", "descripcion", "precio", "stock",
-            "imagen", "detalle_condicion", "presentacion", "activo",
+            "nombre", "descripcion", "precio", "precio_oferta", "oferta_hasta",
+            "stock", "imagen", "detalle_condicion", "activo",
         ]
         labels = {
             "imagen": "Foto principal",
             "detalle_condicion": "Detalle del estado",
-            "presentacion": "Presentación",
+            "precio": "Precio normal",
+            "precio_oferta": "Precio de oferta",
+            "oferta_hasta": "La oferta termina el",
+        }
+        help_texts = {
+            "precio_oferta": "Opcional. Debe ser menor al precio normal.",
+            "oferta_hasta": "Opcional. Ese día todavía cuenta. Vacío = sin fecha de término.",
         }
         widgets = {
             "descripcion": forms.Textarea(attrs={"rows": 4}),
             "detalle_condicion": forms.TextInput(attrs={
                 "placeholder": "Opcional. Por ejemplo: PSA 10, sin caja, esquina marcada",
             }),
+            "oferta_hasta": forms.DateInput(attrs={"type": "date"}, format="%Y-%m-%d"),
         }
 
     def __init__(self, *args, **kwargs):
@@ -315,6 +322,12 @@ class ProductoForm(forms.ModelForm):
                 "imagenes_extra",
                 f"Un producto puede tener hasta {MAX_FOTOS_ADICIONALES} fotos adicionales.",
             )
+            precio = datos.get("precio")
+            oferta = datos.get("precio_oferta")
+            if oferta is not None and precio is not None and oferta >= precio:
+                self.add_error("precio_oferta", "El precio de oferta debe ser menor al precio normal.")
+            if oferta is None and datos.get("oferta_hasta"):
+                self.add_error("oferta_hasta", "Para usar una fecha, escribe primero el precio de oferta.")
         return datos
 
     def save(self, commit=True):

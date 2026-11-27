@@ -1,12 +1,14 @@
 from django.conf import settings
 from django.core.exceptions import ValidationError
+from django.core.validators import MinValueValidator
+from django.utils import timezone
 from django.db import models, transaction
 from django.db.models import F
 from decimal import Decimal
 import unicodedata
 import secrets
 
-ALFABETO_CODIGO = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"  
+ALFABETO_CODIGO = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
 
 
 def generar_codigo_pedido():
@@ -206,6 +208,8 @@ class Producto(models.Model):
     nombre = models.CharField(max_length=200)
     descripcion = models.TextField(blank=True)
     precio = models.DecimalField(max_digits=10, decimal_places=2)
+    precio_oferta = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True,validators=[MinValueValidator(Decimal("0.01"))],)
+    oferta_hasta = models.DateField(null=True, blank=True)
     stock = models.PositiveIntegerField(default=0)
     imagen = models.ImageField(upload_to="productos/", blank=True)
     activo = models.BooleanField(default=True)
@@ -214,6 +218,21 @@ class Producto(models.Model):
 
     def __str__(self):
         return self.nombre
+    @property
+    def en_oferta(self):
+        if self.precio_oferta is None or self.precio_oferta >= self.precio:
+            return False
+        return self.oferta_hasta is None or timezone.localdate() <= self.oferta_hasta
+
+    @property
+    def precio_final(self):
+        return self.precio_oferta if self.en_oferta else self.precio
+
+    @property
+    def descuento_porcentaje(self):
+        if not self.en_oferta or self.precio <= 0:
+            return 0
+        return int(round((1 - self.precio_oferta / self.precio) * 100))
 class ProductoImagen(models.Model):
     producto = models.ForeignKey(
         Producto, on_delete=models.CASCADE, related_name="imagenes"
@@ -388,7 +407,7 @@ def registrar_venta_fisica(
             if p.stock < cantidad:
                 raise ValidationError(f"Solo quedan {p.stock} de {p.nombre}.")
 
-            precio = p.precio if precio is None else Decimal(str(precio))
+            precio = p.precio_final if precio is None else Decimal(str(precio))
             if precio < 0:
                 raise ValidationError("El precio no puede ser negativo.")
 

@@ -106,18 +106,14 @@
 
                 <div class="mt-2 d-flex flex-wrap gap-2">
                     {% for c in t.condiciones.all %}
-                    <span class="border rounded px-2 py-1 d-inline-flex align-items-center gap-1 bg-light">
+                    <span class="border rounded px-2 py-1 d-inline-flex align-items-center gap-2 bg-light">
                         {{ c.nombre }}
-                        <a href="{% url 'panel_etiqueta_editar' 'estado' c.pk %}" class="text-decoration-none" title="Editar">✎</a>
-                        {% if c.total == 0 %}
-                        <form method="post" action="{% url 'panel_etiqueta_borrar' 'estado' c.pk %}" class="d-inline"
-                              onsubmit="return confirm('¿Eliminar el estado «{{ c.nombre|escapejs }}»?');">
+                        <a href="{% url 'panel_estado_editar' c.pk %}" class="text-decoration-none" title="Editar">✎</a>
+                        <form method="post" action="{% url 'panel_estado_borrar' c.pk %}" class="d-inline"
+                              onsubmit="return confirm('¿Eliminar el estado «{{ c.nombre|escapejs }}» de {{ t.nombre|escapejs }}?{% if c.productos.count %} Lo tienen {{ c.productos.count }} producto(s) y quedarán sin estado.{% endif %}');">
                             {% csrf_token %}
                             <button type="submit" class="btn btn-link p-0 text-danger text-decoration-none" title="Eliminar">×</button>
                         </form>
-                        {% else %}
-                        <span class="text-muted" title="Lo usan {{ c.total }} producto(s)">({{ c.total }})</span>
-                        {% endif %}
                     </span>
                     {% empty %}
                     <span class="text-muted small">Sin estados definidos.</span>
